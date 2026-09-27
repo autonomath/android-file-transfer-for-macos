@@ -256,4 +256,17 @@ known limitations:
 reviewer:
 ```
 
-Until that record is complete, a new version can appear in a roadmap or development log but must not replace the v0.1.0 download claims.
+For an early release, record any incomplete hardware or update-installation result as pending and keep those claims out of public copy. Artifact integrity and download claims still require completed verification.
+
+### v0.2.0 handoff — 2026-09-27
+
+- Version and source commit: `v0.2.0`, `35019ed0191d5f776053f9d067b7ba54b301684a`.
+- [Public release](https://github.com/autonomath/android-file-transfer-for-macos/releases/tag/v0.2.0): normal release, published 2026-09-27, with exactly two DMGs, two updater ZIPs, `latest-mac.yml`, `THIRD_PARTY_SOURCES-0.2.0.tar.gz`, and `SHA256SUMS.txt`.
+- SHA-256: all seven public assets were downloaded again; the published checksum file verified the other six files. The merged update manifest's SHA-512 and size matched both ZIPs.
+- Developer ID: TeamIdentifier `RJL9XWBZ9L` on both apps and their nested native binaries; hardened runtime and the helper's USB entitlement verified.
+- Notarization and Gatekeeper: both DMGs and both updater ZIPs contain notarized, stapled apps that passed the release verifier after download. Both DMGs passed Gatekeeper assessment.
+- Behavior smoke: the signed arm64 helper, Finder drag addon, and app launch passed natively. The signed x64 equivalents passed under Rosetta; the Intel CI runner passed the source, build, and native dependency checks. A native Intel packaged-app launch remains to be recorded.
+- Real-device matrix: pending. No Android device was connected for the final signed-release pass. The checklist documents Samsung and Pixel scenarios, not a complete per-model result.
+- Consent-based update installation: the shipped app, ZIPs, and feed passed static and package checks. An actual in-place update from v0.2.0 to a newer signed version remains to be recorded.
+- Approved public claims: versioned release manifest and website at source commit `35019ed`; compatibility and update-installation claims remain qualified as above. No current competitor prices are rendered.
+- Reviewer: Codex automated checks, packaged smoke tests, and post-download artifact verification. Independent hardware and accessibility reviews remain open.

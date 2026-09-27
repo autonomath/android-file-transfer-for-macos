@@ -17,13 +17,25 @@ bash "$ROOT/scripts/verify-release-assets.sh" "$DIRECTORY" "$VERSION"
 if git -C "$ROOT" ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
   git -C "$ROOT" fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
   test "$(git -C "$ROOT" rev-list -n 1 "$TAG")" = "$SOURCE_SHA"
+else
+  if git -C "$ROOT" show-ref --verify --quiet "refs/tags/$TAG"; then
+    test "$(git -C "$ROOT" rev-list -n 1 "$TAG")" = "$SOURCE_SHA"
+  else
+    git -C "$ROOT" tag "$TAG" "$SOURCE_SHA"
+  fi
+  git -C "$ROOT" push origin "refs/tags/$TAG"
 fi
 
 if gh release view "$TAG" >/dev/null 2>&1; then
   test "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = true
   gh release upload "$TAG" "$DIRECTORY"/* --clobber
 else
-  gh release create "$TAG" "$DIRECTORY"/* --draft --target "$SOURCE_SHA" --title "$TAG" --generate-notes
+  NOTES_FILE="$ROOT/docs/release-notes-v$VERSION.md"
+  if [[ -f "$NOTES_FILE" ]]; then
+    gh release create "$TAG" "$DIRECTORY"/* --draft --target "$SOURCE_SHA" --title "$TAG" --notes-file "$NOTES_FILE"
+  else
+    gh release create "$TAG" "$DIRECTORY"/* --draft --target "$SOURCE_SHA" --title "$TAG" --generate-notes
+  fi
 fi
 
 git -C "$ROOT" fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"

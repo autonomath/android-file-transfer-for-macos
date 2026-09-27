@@ -19,6 +19,13 @@ Download the DMG for your Mac from the [latest GitHub release](https://github.co
 
 Both the app and DMG are signed with an Apple Developer ID, notarized by Apple, and stapled for Gatekeeper. Release checksums are published in `SHA256SUMS.txt`.
 
+Homebrew users can install the same signed DMG through the [project tap](https://github.com/autonomath/homebrew-tap):
+
+```sh
+brew tap autonomath/tap
+brew install --cask autonomath/tap/android-file-transfer-for-macos
+```
+
 ## What it does
 
 - Browses Android storage and Mac folders with independent list and grid views.
