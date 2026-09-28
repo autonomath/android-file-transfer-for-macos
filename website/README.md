@@ -1,6 +1,6 @@
 # Static website
 
-This directory contains a dependency-free product site for **Android File Transfer for macOS**. The repository-root `release-manifest.json` controls version, minimum macOS version, feature claims, and direct download names.
+This directory contains a short, static download page for **Android File Transfer for macOS**: downloads, one app screenshot, three setup steps, and help links. The repository-root `release-manifest.json` controls version, minimum macOS version, feature claims, and direct download names.
 
 ## Preview
 
@@ -19,7 +19,7 @@ Then open `http://127.0.0.1:4173/`. The build copies every referenced image into
 
 - The Pages workflow deploys only after it confirms a published, non-prerelease release with all website download assets. Configure the repository's Pages source as GitHub Actions before running it.
 - Re-run link, claim, responsive-layout, accessibility, and no-tracker checks before each release.
-- The comparison inventory is a July 2026 research snapshot. The public UI omits prices and competitor OS minimums; refresh vendor capabilities before expanding it.
+- Keep the page short and stationary: no scroll effects, moving controls, feature grids, comparison tables, or roadmap. Background research remains in `marketing/`.
 - Update the absolute canonical and Open Graph URLs if a custom domain replaces the default project Pages URL.
 
-The site contains no analytics, cookies, remote fonts, client framework, package dependency, or third-party runtime request. Download links leave the site for GitHub Releases.
+The site uses only HTML, CSS, and local images. It has no client JavaScript, analytics, cookies, remote fonts, or third-party runtime requests. Images have explicit dimensions to reserve their space as they load. Download links leave the site for GitHub Releases.
