@@ -4,8 +4,9 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Android File Transfer for macOS</title>
-    <meta name="description" content="Browse and copy files between your Android phone and Mac over USB. Free and open source. No account or phone app needed." />
-    <meta name="theme-color" content="#fafbfc" />
+    <meta name="description" content="Browse and copy files between your Android phone and Mac over USB. Free and open source. No account, cloud, or phone app needed." />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f6f8f7" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f1416" />
     <link rel="canonical" href="https://autonomath.github.io/android-file-transfer-for-macos/" />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="Android File Transfer for macOS" />
@@ -20,30 +21,73 @@
     <a class="skip-link" href="#main">Skip to content</a>
     <header class="site-header">
       <a class="wordmark" href="./" aria-label="Android File Transfer for macOS, home">
-        <img src="./assets/app-icon.svg" alt="" width="32" height="32" />
+        <img src="./assets/app-icon.svg" alt="" width="34" height="34" />
         <span>Android File Transfer <small>for macOS</small></span>
       </a>
-      <a href="https://github.com/autonomath/android-file-transfer-for-macos">GitHub</a>
+      <nav aria-label="Project">
+        <a href="#features">Features</a>
+        <a href="#setup">Setup</a>
+        <a href="#faq">FAQ</a>
+        <a href="https://github.com/autonomath/android-file-transfer-for-macos">GitHub</a>
+      </nav>
     </header>
 
     <main id="main">
-      <section class="intro" aria-labelledby="intro-title">
-        <h1 id="intro-title">Android files, on your Mac.</h1>
-        <p class="description" data-feature="mtpBrowse bidirectionalFileFolderCopy">Browse folders and copy files both ways over USB.</p>
+      <section class="hero" aria-labelledby="hero-title">
+        <h1 id="hero-title">Android files, on your Mac.</h1>
+        <p class="lede" data-feature="mtpBrowse bidirectionalFileFolderCopy">Browse your phone's folders and copy files both ways over USB.</p>
         <p class="purpose">It should come standard with macOS. Until it does, this fills the gap.</p>
         <div class="downloads" aria-label="Download for your Mac">
-          <a class="download primary" href="@@ARM64_DMG@@">Download for Apple silicon</a>
-          <a class="download secondary" href="@@X64_DMG@@">Download for Intel</a>
+          <a class="button primary" href="@@ARM64_DMG@@">Download for Apple silicon</a>
+          <a class="button secondary" href="@@X64_DMG@@">Download for Intel</a>
         </div>
-        <p class="release">v@@VERSION@@ &middot; macOS @@MIN_MACOS@@ &middot; Signed and notarized</p>
-        <p class="simple-facts">Free and open source. No account, cloud, or phone app needed.</p>
+        <p class="release">v@@VERSION@@ &middot; macOS @@MIN_MACOS@@ &middot; Signed and notarized &middot; Free and open source</p>
+        <p class="brew">Or with Homebrew: <code>brew install --cask autonomath/tap/android-file-transfer-for-macos</code></p>
       </section>
 
       <figure class="app-preview">
         <img src="./assets/screenshot.png" width="1332" height="892" alt="Android files on the left, a Mac folder on the right, and controls to copy files between them." />
+        <figcaption>Phone on the left, Mac on the right. Select files or folders, then copy in either direction or drag them straight into Finder.</figcaption>
       </figure>
 
-      <section class="setup" aria-labelledby="setup-title">
+      <section class="features" id="features" aria-labelledby="features-title">
+        <h2 id="features-title">What it does</h2>
+        <p class="section-intro">The everyday parts of moving files, handled properly.</p>
+        <ul class="feature-grid">
+          <li data-feature="bidirectionalFileFolderCopy">
+            <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 8h13M13 4l4 4-4 4M20 16H7M11 12l-4 4 4 4"/></svg></span>
+            <h3>Copy both ways</h3>
+            <p>Files and whole folders, from the phone to the Mac or back again.</p>
+          </li>
+          <li data-feature="finderFilePromises">
+            <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 3l14 8-6 2-3 6z"/></svg></span>
+            <h3>Drag and drop with Finder</h3>
+            <p>Drop Mac items onto the phone, or drag phone files straight into Finder, the Desktop, or another app.</p>
+          </li>
+          <li data-feature="bidirectionalFileFolderCopy">
+            <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7"/><circle cx="18" cy="17" r="3"/></svg></span>
+            <h3>A queue you can watch</h3>
+            <p>Progress, speed, and time remaining for each transfer, with cancel and retry.</p>
+          </li>
+          <li data-feature="replaceExisting">
+            <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg></span>
+            <h3>Duplicates handled your way</h3>
+            <p>Keep Both, Replace, or Skip. Free space is checked before anything copies.</p>
+          </li>
+          <li data-feature="phoneRename phoneDelete">
+            <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 20h4l10-10-4-4L4 16zM13 7l4 4"/></svg></span>
+            <h3>Tidy up the phone</h3>
+            <p>Rename files and folders on the phone, or delete them after a confirmation.</p>
+          </li>
+          <li data-feature="mtpBrowse">
+            <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 3v4M15 3v4M6 7h12v5a6 6 0 0 1-12 0zM12 18v3"/></svg></span>
+            <h3>Clear about the connection</h3>
+            <p>Shows whether the cable, File Transfer mode, or the phone's permission prompt is what's waiting on you.</p>
+          </li>
+        </ul>
+      </section>
+
+      <section class="setup" id="setup" aria-labelledby="setup-title">
         <h2 id="setup-title">Plug in and copy.</h2>
         <ol>
           <li><h3>Install</h3><p>Open the DMG and drag the app to Applications.</p></li>
@@ -52,16 +96,48 @@
         </ol>
         <p class="help">Phone not showing up? <a href="https://github.com/autonomath/android-file-transfer-for-macos#use">Connection help</a> &middot; <a href="https://github.com/autonomath/android-file-transfer-for-macos/issues/new/choose">Report an issue</a></p>
       </section>
+
+      <section class="faq" id="faq" aria-labelledby="faq-title">
+        <h2 id="faq-title">Common questions</h2>
+        <dl>
+          <div>
+            <dt>Is this Google's Android File Transfer?</dt>
+            <dd>No. Google's app is no longer offered. This is an independent, open-source project that does the same job.</dd>
+          </div>
+          <div>
+            <dt>Do I need to install anything on the phone?</dt>
+            <dd>No. Unlock the phone and choose File Transfer (sometimes called Transferring files or MTP) from the USB notification. USB debugging is not needed.</dd>
+          </div>
+          <div>
+            <dt>Do my files go anywhere else?</dt>
+            <dd data-feature="inAppUpdater">No. Files move over the cable, and the app has no analytics, accounts, or telemetry. Once a day it asks GitHub whether a newer version exists; you choose if and when to update.</dd>
+          </div>
+          <div>
+            <dt>Which download do I need?</dt>
+            <dd>Apple silicon for M-series Macs, Intel for older Macs. Apple menu &rsaquo; About This Mac shows which you have. Both are signed, notarized, and listed in the published <a href="@@CHECKSUMS@@">checksums</a>.</dd>
+          </div>
+          <div>
+            <dt>Does it work with every Android phone?</dt>
+            <dd>It uses the standard File Transfer mode most phones offer, but testing is deepest on Samsung phones so far. If yours misbehaves, an issue report with the phone model helps.</dd>
+          </div>
+          <div>
+            <dt>Can I build it myself?</dt>
+            <dd>Yes. The source, build scripts, and release automation are on <a href="https://github.com/autonomath/android-file-transfer-for-macos">GitHub</a> under the MIT license.</dd>
+          </div>
+        </dl>
+      </section>
     </main>
 
     <footer>
       <nav aria-label="Project links">
+        <a href="https://github.com/autonomath/android-file-transfer-for-macos">GitHub</a>
         <a href="https://github.com/autonomath/homebrew-tap">Homebrew</a>
         <a href="https://github.com/autonomath/android-file-transfer-for-macos/releases/latest">Release notes</a>
         <a href="@@CHECKSUMS@@">Checksums</a>
+        <a href="https://github.com/autonomath/android-file-transfer-for-macos/blob/main/SECURITY.md">Security</a>
         <a href="https://github.com/autonomath/android-file-transfer-for-macos/blob/main/LICENSE">MIT license</a>
       </nav>
-      <p>Independent project. Not affiliated with Google or Apple.</p>
+      <p>Independent project, not affiliated with Google or Apple. Android is a trademark of Google LLC; macOS is a trademark of Apple Inc.</p>
     </footer>
   </body>
 </html>
