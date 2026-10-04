@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">How Android File Transfer for macOS opens a device</title>
+  <desc id="desc">Five distinct stages show USB visibility, Android File Transfer mode, file session access, storage discovery, and lazy folder loading.</desc>
+  <rect width="1600" height="900" fill="#10282d"/>
+  <g font-family="Avenir Next">
+    <text x="90" y="88" fill="#9bc654" font-family="Menlo" font-size="18" font-weight="700" letter-spacing="3">HOW IT WORKS · USB MTP</text>
+    <text x="88" y="168" fill="#fffdf8" font-family="Georgia" font-size="67" font-weight="600">Five stages. One useful diagnosis.</text>
+    <text x="90" y="217" fill="#b5c4c2" font-size="23">“Device detected” is not the same as “files are ready.” The interface keeps each state separate.</text>
+  </g>
+  <path d="M150 482h1300" stroke="#315159" stroke-width="10" stroke-linecap="round"/>
+  <g font-family="Avenir Next">
+    <g transform="translate(90 315)">
+      <circle cx="100" cy="170" r="82" fill="#1b3a40" stroke="#9bc654" stroke-width="4"/>
+      <path d="M61 170h78" stroke="#fffdf8" stroke-width="13" stroke-linecap="round"/><rect x="45" y="148" width="28" height="44" rx="7" fill="#e0a342"/><rect x="127" y="148" width="28" height="44" rx="7" fill="#5ca7e5"/>
+      <circle cx="100" cy="170" r="9" fill="#9bc654"/>
+      <text x="100" y="18" fill="#e0a342" text-anchor="middle" font-family="Menlo" font-size="18" font-weight="700">01</text>
+      <text x="100" y="298" fill="#fffdf8" text-anchor="middle" font-size="25" font-weight="700">USB cable</text>
+      <text x="100" y="335" fill="#9fb0ad" text-anchor="middle" font-size="17">Hardware appears</text>
+    </g>
+    <g transform="translate(400 315)">
+      <circle cx="100" cy="170" r="82" fill="#1b3a40" stroke="#9bc654" stroke-width="4"/>
+      <rect x="65" y="112" width="70" height="116" rx="18" fill="#607b45" stroke="#a8d35b" stroke-width="5"/>
+      <path d="M78 159h44m-44 20h31" stroke="#fffdf8" stroke-width="7" stroke-linecap="round"/>
+      <circle cx="100" cy="208" r="6" fill="#fffdf8"/>
+      <text x="100" y="18" fill="#e0a342" text-anchor="middle" font-family="Menlo" font-size="18" font-weight="700">02</text>
+      <text x="100" y="298" fill="#fffdf8" text-anchor="middle" font-size="25" font-weight="700">File Transfer</text>
+      <text x="100" y="335" fill="#9fb0ad" text-anchor="middle" font-size="17">Android exposes MTP</text>
+    </g>
+    <g transform="translate(710 315)">
+      <circle cx="100" cy="170" r="82" fill="#1b3a40" stroke="#9bc654" stroke-width="4"/>
+      <path d="M63 156h74v56H63z" fill="none" stroke="#5ca7e5" stroke-width="7"/><path d="M77 156v-14c0-31 46-31 46 0v14" fill="none" stroke="#e0a342" stroke-width="8" stroke-linecap="round"/>
+      <circle cx="100" cy="183" r="8" fill="#fffdf8"/><path d="M100 191v10" stroke="#fffdf8" stroke-width="6"/>
+      <text x="100" y="18" fill="#e0a342" text-anchor="middle" font-family="Menlo" font-size="18" font-weight="700">03</text>
+      <text x="100" y="298" fill="#fffdf8" text-anchor="middle" font-size="25" font-weight="700">File session</text>
+      <text x="100" y="335" fill="#9fb0ad" text-anchor="middle" font-size="17">Access opens</text>
+    </g>
+    <g transform="translate(1020 315)">
+      <circle cx="100" cy="170" r="82" fill="#1b3a40" stroke="#9bc654" stroke-width="4"/>
+      <ellipse cx="100" cy="137" rx="49" ry="21" fill="#5ca7e5"/><path d="M51 137v62c0 28 98 28 98 0v-62" fill="#245d7a" stroke="#5ca7e5" stroke-width="5"/><ellipse cx="100" cy="199" rx="49" ry="21" fill="#3c7f9f"/>
+      <text x="100" y="18" fill="#e0a342" text-anchor="middle" font-family="Menlo" font-size="18" font-weight="700">04</text>
+      <text x="100" y="298" fill="#fffdf8" text-anchor="middle" font-size="25" font-weight="700">Storage</text>
+      <text x="100" y="335" fill="#9fb0ad" text-anchor="middle" font-size="17">Shared volumes appear</text>
+    </g>
+    <g transform="translate(1330 315)">
+      <circle cx="100" cy="170" r="82" fill="#1b3a40" stroke="#9bc654" stroke-width="4"/>
+      <path d="M48 145h45l15 17h44v59H48z" fill="#e0a342"/><path d="M48 145v-19h55l14 19" fill="#c48736"/>
+      <path d="M73 183h54" stroke="#fffdf8" stroke-width="7" stroke-linecap="round"/>
+      <text x="100" y="18" fill="#e0a342" text-anchor="middle" font-family="Menlo" font-size="18" font-weight="700">05</text>
+      <text x="100" y="298" fill="#fffdf8" text-anchor="middle" font-size="25" font-weight="700">Folder</text>
+      <text x="100" y="335" fill="#9fb0ad" text-anchor="middle" font-size="17">Items load lazily</text>
+    </g>
+  </g>
+  <g font-family="Avenir Next">
+    <rect x="90" y="732" width="1420" height="93" fill="#17363c" stroke="#315159"/>
+    <text x="125" y="770" fill="#e0a342" font-family="Menlo" font-size="15" font-weight="700">WHY THIS MATTERS</text>
+    <text x="125" y="804" fill="#d8e1df" font-size="20">A locked phone, wrong USB mode, occupied interface, missing storage, and slow folder are different problems—and get different guidance.</text>
+  </g>
+</svg>

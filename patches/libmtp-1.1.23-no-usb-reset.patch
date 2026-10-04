@@ -1,0 +1,30 @@
+diff --git a/src/libusb1-glue.c b/src/libusb1-glue.c
+index 6472dca..d16b5d2 100644
+--- a/src/libusb1-glue.c
++++ b/src/libusb1-glue.c
+@@ -2109,6 +2109,10 @@ static void close_usb(PTP_USB* ptp_usb)
+      * Reset may help some.
+      */
+-    libusb_reset_device (ptp_usb->handle);
++    if (getenv("MAC_ANDROID_TRANSFER_DISABLE_USB_RESET") == NULL) {
++      libusb_reset_device (ptp_usb->handle);
++    } else {
++      LIBMTP_ERROR("LIBMTP libusb: forced reset on close suppressed by application\n");
++    }
+   }
+   libusb_close(ptp_usb->handle);
+ }
+@@ -2306,7 +2310,12 @@ LIBMTP_error_number_t configure_usb_device(LIBMTP_raw_device_t *device,
+    * This works in situations where previous bad applications
+    * have not used LIBMTP_Release_Device on exit
+    */
+-  if ((ret = ptp_opensession(params, 1)) == PTP_ERROR_IO) {
++  ret = ptp_opensession(params, 1);
++  if (ret == PTP_ERROR_IO &&
++      getenv("MAC_ANDROID_TRANSFER_DISABLE_USB_RESET") != NULL) {
++    LIBMTP_ERROR("PTP_ERROR_IO: failed to open session; automatic USB reset disabled by application\n");
++  }
++  else if (ret == PTP_ERROR_IO) {
+     LIBMTP_ERROR("PTP_ERROR_IO: failed to open session, trying again after resetting USB interface\n");
+     LIBMTP_ERROR("LIBMTP libusb: Attempt to reset device\n");
+     libusb_reset_device (ptp_usb->handle);

@@ -1,0 +1,75 @@
+name: Device compatibility report
+description: Share what worked or failed with a specific Android device and Mac.
+title: "[Device]: "
+body:
+  - type: markdown
+    attributes:
+      value: Review your report before submitting it. Remove device serial numbers, personal paths, phone file listings, credentials, and unrelated personal data.
+  - type: input
+    id: app_version
+    attributes:
+      label: App version
+      placeholder: v0.2.0
+    validations:
+      required: true
+  - type: input
+    id: phone_model
+    attributes:
+      label: Phone model
+      placeholder: Pixel 9
+    validations:
+      required: true
+  - type: input
+    id: android_version
+    attributes:
+      label: Android version
+      placeholder: Android 16
+    validations:
+      required: true
+  - type: input
+    id: mac_model
+    attributes:
+      label: Mac model
+      placeholder: MacBook Air M3
+    validations:
+      required: true
+  - type: dropdown
+    id: mac_architecture
+    attributes:
+      label: Mac architecture
+      options:
+        - Apple silicon
+        - Intel
+    validations:
+      required: true
+  - type: input
+    id: macos_version
+    attributes:
+      label: macOS version
+      placeholder: macOS 15.5
+    validations:
+      required: true
+  - type: dropdown
+    id: outcome
+    attributes:
+      label: Overall result
+      options:
+        - Full checklist passed
+        - Some actions worked
+        - Connected but could not browse
+        - Could not connect
+    validations:
+      required: true
+  - type: textarea
+    id: tested_actions
+    attributes:
+      label: Actions tested and results
+      description: Say which of browse, copy in each direction, rename, permanent delete, and same-name Replace you tried. Mark untested actions clearly.
+    validations:
+      required: true
+  - type: textarea
+    id: copy_report
+    attributes:
+      label: Redacted Copy Report
+      description: If relevant, paste Copy Report from Details after reviewing and removing any identifying information.
+      render: text

@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Android File Transfer for macOS — Free Open-Source USB File Browser</title>
+    <meta
+      name="description"
+      content="Browse and copy Android files on macOS over USB. Free and open source, with no cloud, account, subscription, phone app, or USB debugging."
+    />
+    <meta name="theme-color" content="#10282d" />
+    <meta name="color-scheme" content="dark light" />
+    <link rel="canonical" href="https://autonomath.github.io/android-file-transfer-for-macos/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Android File Transfer for macOS" />
+    <meta
+      property="og:description"
+      content="The USB file browser macOS is missing. Free, open source, and local."
+    />
+    <meta property="og:image" content="https://autonomath.github.io/android-file-transfer-for-macos/assets/og-card.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="./assets/app-icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="./market-data.js" defer></script>
+    <script src="./script.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <a class="wordmark" href="#top" aria-label="Android File Transfer for macOS, home">
+        <img src="./assets/app-icon.svg" alt="" width="38" height="38" />
+        <span>Android File Transfer <small>for macOS</small></span>
+      </a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+        Menu
+      </button>
+      <nav id="site-nav" aria-label="Main navigation">
+        <a href="#how">How it works</a>
+        <a href="#features">Features</a>
+        <a href="#compare">Compare</a>
+        <a href="#roadmap">Roadmap</a>
+        <a href="#faq">FAQ</a>
+        <a class="nav-source" href="https://github.com/autonomath/android-file-transfer-for-macos">GitHub ↗</a>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero" id="top">
+        <div class="hero-copy">
+          <p class="eyebrow">THE USB FILE BROWSER macOS IS MISSING</p>
+          <h1>Your Android files.<br /><em>On your Mac.</em><br />Through the cable.</h1>
+          <p class="hero-deck">
+            Browse shared Android storage and copy files or folders in either direction.
+            Free and open source—without a cloud detour, phone app, developer mode,
+            account, or subscription.
+          </p>
+
+          <div class="download-group" aria-label="Downloads">
+            <a
+              class="button button-primary"
+              href="@@ARM64_DMG@@"
+            >
+              <span>Download for Apple silicon</span>
+              <small>v@@VERSION@@ · arm64 DMG</small>
+            </a>
+            <a
+              class="button button-secondary"
+              href="@@X64_DMG@@"
+            >
+              <span>Download for Intel</span>
+              <small>v@@VERSION@@ · x64 DMG</small>
+            </a>
+          </div>
+          <p class="release-line">
+            <strong>Early release</strong> · macOS @@MIN_MACOS@@ · signed · notarized · stapled ·
+            <a href="@@CHECKSUMS@@">checksums</a>
+          </p>
+        </div>
+
+        <div class="hero-visual">
+          <img
+            src="./assets/project-graphic.svg"
+            alt="A green Android-inspired character and a blue Mac-inspired computer exchange files through a physical USB cable."
+          />
+          <p class="hero-note"><span>01</span> Connect it. Unlock it. Choose File Transfer.</p>
+        </div>
+      </section>
+
+      <section class="proof-band" aria-label="Project principles">
+        <p><span>LOCAL</span> File contents stay on the USB connection.</p>
+        <p><span>OPEN</span> MIT source, build scripts, notices, and dependency source.</p>
+        <p><span>DIRECT</span> No account, companion app, subscription, or debugging mode.</p>
+      </section>
+
+      <section class="editorial-section why" id="why">
+        <div class="section-number">01 / WHY</div>
+        <div class="why-heading">
+          <p class="eyebrow">A BORING UTILITY, ON PURPOSE</p>
+          <h2>This should simply exist.</h2>
+        </div>
+        <div class="why-copy">
+          <p class="large-copy">
+            Android already exposes shared storage over USB. macOS can see the hardware,
+            but it does not ship a general MTP folder browser.
+          </p>
+          <p>
+            This project fills that narrow gap. It is not a phone suite, backup cloud,
+            wireless ecosystem, or recurring service. It is a focused, inspectable bridge
+            between two devices you own.
+          </p>
+          <blockquote>
+            “This is basic device interoperability. It should be built into macOS.
+            Until it is, this project provides it.”
+          </blockquote>
+        </div>
+      </section>
+
+      <section class="product-stage" id="how">
+        <div class="section-heading inverse">
+          <div>
+            <p class="eyebrow">THE ACTUAL APP</p>
+            <h2>Two panes. One cable. No mystery.</h2>
+          </div>
+          <p>
+            Android storage and Mac folders stay visible side by side. Connection stages
+            tell you whether the cable, USB mode, file session, storage, or folder is waiting.
+          </p>
+        </div>
+        <figure class="app-shot">
+          <div class="shot-frame">
+            <img
+              src="./assets/screenshot.png"
+              alt="Android File Transfer for macOS showing Android storage on the left, a Mac folder on the right, connection stages, and transfer controls."
+            />
+          </div>
+          <figcaption>
+            <span>Interface preview</span>
+            Browse lazily, queue copies, drag into Finder, and see what the connection is doing.
+          </figcaption>
+        </figure>
+        <div class="connection-steps" aria-label="Connection stages">
+          <div><b>1</b><span>USB cable</span><small>Hardware is visible</small></div>
+          <div><b>2</b><span>File Transfer</span><small>Android exposes MTP</small></div>
+          <div><b>3</b><span>File session</span><small>The app opens access</small></div>
+          <div><b>4</b><span>Storage</span><small>Shared volumes appear</small></div>
+          <div><b>5</b><span>Folder</span><small>Items load on demand</small></div>
+        </div>
+      </section>
+
+      <section class="editorial-section features" id="features">
+        <div class="section-number">02 / WHAT SHIPS</div>
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">AVAILABLE IN v@@VERSION@@</p>
+            <h2>A real transfer workflow, not a landing-page promise.</h2>
+          </div>
+          <p>
+            These features are included in the downloadable release.
+          </p>
+        </div>
+        <div class="feature-ledger">
+          <article data-feature="bidirectionalFileFolderCopy">
+            <span class="feature-index">01</span>
+            <h3>Files and folders, both ways</h3>
+            <p>Copy individual files or recursive folders between shared Android storage and Mac folders.</p>
+          </article>
+          <article data-feature="finderFilePromises">
+            <span class="feature-index">02</span>
+            <h3>Finder drag and drop</h3>
+            <p>Drop Mac items onto the phone, or drag phone items to Finder through native AppKit file promises.</p>
+          </article>
+          <article data-feature="bidirectionalFileFolderCopy">
+            <span class="feature-index">03</span>
+            <h3>A visible transfer queue</h3>
+            <p>Follow progress, speed, ETA, folder planning, cancellation, retry, and completed destinations.</p>
+          </article>
+          <article data-feature="replaceExisting">
+            <span class="feature-index">04</span>
+            <h3>Careful destination handling</h3>
+            <p>Free-space checks, partial downloads, safe duplicate names, and explicit Keep Both, Replace, Skip, or Cancel choices.</p>
+          </article>
+          <article data-feature="mtpBrowse">
+            <span class="feature-index">05</span>
+            <h3>Honest connection states</h3>
+            <p>USB-visible is not confused with an open file session. Each stage gets specific recovery guidance.</p>
+          </article>
+          <article>
+            <span class="feature-index">06</span>
+            <h3>Inspectable releases</h3>
+            <p>Signed and notarized architecture-specific DMGs, checksums, exact LGPL source, and public automation.</p>
+          </article>
+          <article data-feature="phoneRename phoneDelete">
+            <span class="feature-index">07</span>
+            <h3>File management on the phone</h3>
+            <p>Rename phone files and folders. Permanent phone deletion requires confirmation and a fresh check of the selected item.</p>
+          </article>
+          <article data-feature="inAppUpdater">
+            <span class="feature-index">08</span>
+            <h3>Updates with your consent</h3>
+            <p>See when a newer release is available, then choose when to download and restart.</p>
+          </article>
+        </div>
+        <aside class="boundary-note">
+          <strong>Compatibility boundary</strong>
+          <p>
+            Real-device testing is deepest on Samsung. MTP behavior varies by phone and USB mode;
+            the app does not offer resumable transfers, content-hash verification, previews, or a Finder mount.
+          </p>
+        </aside>
+      </section>
+
+      <section class="comparison-section" id="compare">
+        <div class="section-heading inverse">
+          <div>
+            <p class="eyebrow">THE 2026 LANDSCAPE</p>
+            <h2>“Transfer” describes four different jobs.</h2>
+          </div>
+          <p>
+            We catalogued direct MTP browsers, Finder mounts, wireless senders, ADB tools,
+            backup suites, and sync products. Competitor features below are vendor-claimed
+            unless independently tested.
+          </p>
+        </div>
+
+        <div class="job-grid">
+          <article>
+            <span>A</span>
+            <h3>Browse a device</h3>
+            <p>MTP browsers and Finder mounts expose shared folders for deliberate file management.</p>
+          </article>
+          <article>
+            <span>B</span>
+            <h3>Send selected items</h3>
+            <p>Quick Share, AirDrop bridges, and LocalSend are faster to explain—but do not browse the phone.</p>
+          </article>
+          <article>
+            <span>C</span>
+            <h3>Develop and debug</h3>
+            <p>ADB and Android Studio reach developer workflows after USB debugging and device trust.</p>
+          </article>
+          <article>
+            <span>D</span>
+            <h3>Back up or synchronize</h3>
+            <p>OEM suites, cloud drives, and sync tools automate collections rather than expose a simple cable browser.</p>
+          </article>
+        </div>
+
+        <figure class="market-map">
+          <img
+            src="./assets/market-map.svg"
+            alt="Market map placing transfer options by direct versus dependent operation and sending versus browsing shared storage."
+          />
+          <figcaption>A category map—not a performance ranking. See the full evidence ledger below.</figcaption>
+        </figure>
+
+        <div class="explorer" aria-labelledby="explorer-heading">
+          <div class="explorer-head">
+            <div>
+              <p class="eyebrow">FILTERABLE INVENTORY</p>
+              <h3 id="explorer-heading">Find the kind of transfer you actually need.</h3>
+            </div>
+            <div class="explorer-status">
+              <p id="market-count" aria-live="polite">Loading market inventory…</p>
+              <button id="market-more" type="button" hidden>Show full inventory</button>
+            </div>
+          </div>
+          <div class="filters" aria-label="Comparison filters">
+            <label class="search-field">
+              <span>Search products or capabilities</span>
+              <input id="market-search" type="search" placeholder="MTP, Finder, wireless, open source…" />
+            </label>
+            <label>
+              <span>Category</span>
+              <select id="market-category">
+                <option value="all">All categories</option>
+              </select>
+            </label>
+            <fieldset>
+              <legend>Requirements</legend>
+              <label><input id="filter-open" type="checkbox" /> Open source</label>
+              <label><input id="filter-no-phone" type="checkbox" /> No phone app</label>
+              <label><input id="filter-no-debug" type="checkbox" /> No USB debugging</label>
+            </fieldset>
+          </div>
+          <div class="market-table-wrap">
+            <table class="market-table">
+              <thead>
+                <tr>
+                  <th scope="col">Option</th>
+                  <th scope="col">Job / transport</th>
+                  <th scope="col">Setup</th>
+                  <th scope="col">Source</th>
+                  <th scope="col">What it is good at</th>
+                </tr>
+              </thead>
+              <tbody id="market-results"></tbody>
+            </table>
+          </div>
+          <p class="method-note">
+            Research snapshot: <time datetime="2026-07-22">July 22, 2026</time>.
+            “All options” is bounded to verifiable, relevant macOS routes; literal exhaustiveness
+            is impossible because white-label utilities and local server apps appear continuously.
+            This dated inventory omits prices and OS minimums because both change; check each
+            linked first-party source before choosing a tool.
+          </p>
+        </div>
+      </section>
+
+      <section class="editorial-section choice-guide">
+        <div class="section-number">03 / CHOOSE</div>
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">THE HONEST ANSWER</p>
+            <h2>Use the smallest tool that matches the job.</h2>
+          </div>
+        </div>
+        <div class="choice-list">
+          <article class="choice-primary">
+            <h3>Choose this project</h3>
+            <p>For a cable, a visible folder tree, two-way files and folders, no Android install, no debugging, and open packaging.</p>
+          </article>
+          <article>
+            <h3>Choose Quick Share / AirDrop or LocalSend</h3>
+            <p>For a few wireless sends when both devices and OS versions support your preferred route.</p>
+          </article>
+          <article>
+            <h3>Choose MacDroid or Phone Mechanic</h3>
+            <p>When a Finder-mounted device and direct in-place editing matter most.</p>
+          </article>
+          <article>
+            <h3>Choose ADB or Android Studio</h3>
+            <p>When developer mode is already enabled and shell-level or app-debugging access is the point.</p>
+          </article>
+          <article>
+            <h3>Choose Smart Switch or an OEM suite</h3>
+            <p>For supported-device backup, migration, restore, firmware, contacts, or app-level management.</p>
+          </article>
+          <article>
+            <h3>Choose Syncthing or Resilio</h3>
+            <p>For continuous replicated folders over a network instead of deliberate cable browsing.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="architecture-section" id="technical">
+        <div class="section-heading inverse">
+          <div>
+            <p class="eyebrow">UNDER THE WINDOW</p>
+            <h2>Small native edges. Explicit trust boundaries.</h2>
+          </div>
+          <p>
+            Electron and React present the interface. A narrow preload bridge reaches the main
+            process, which serializes MTP work through a native helper built from pinned libmtp
+            and libusb sources.
+          </p>
+        </div>
+        <div class="architecture-grid">
+          <img
+            src="./assets/architecture.svg"
+            alt="Architecture diagram from React renderer through a context-isolated bridge, Electron main process, native MTP helper, libmtp and libusb to the Android device."
+          />
+          <div class="tech-ledger">
+            <dl>
+              <div><dt>UI runtime</dt><dd>Electron + React</dd></div>
+              <div><dt>Native transport</dt><dd>libmtp 1.1.23 + libusb 1.0.30</dd></div>
+              <div><dt>Finder drag</dt><dd>Objective-C++ / AppKit file promises</dd></div>
+              <div><dt>Target</dt><dd>macOS @@MIN_MACOS@@, arm64 and x64</dd></div>
+              <div><dt>Security</dt><dd>Context isolation, hardened runtime, narrow USB entitlement</dd></div>
+              <div><dt>Release proof</dt><dd>Developer ID, notarization, stapling, Gatekeeper, SHA-256</dd></div>
+            </dl>
+            <p class="caveat">
+              No independent security audit has been completed. The renderer sandbox is currently
+              disabled, and copied diagnostics can include a device identifier and local paths.
+              Those are documented hardening targets, not hidden caveats.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section class="editorial-section roadmap" id="roadmap">
+        <div class="section-number">04 / NEXT</div>
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">PRODUCT ROADMAP</p>
+            <h2>Reliability before surface area.</h2>
+          </div>
+          <p>
+            The next steps improve compatibility evidence and daily reliability without
+            turning a file browser into a phone suite.
+          </p>
+        </div>
+        <div class="roadmap-columns">
+          <article>
+            <span class="priority">P0 · DOCUMENT COMPATIBILITY</span>
+            <h3>Test more devices</h3>
+            <ul>
+              <li>Record model, Android version, Mac architecture, and macOS version for each test.</li>
+              <li>Exercise browse, copy, rename, delete, and replacement on more phones.</li>
+              <li>Publish reports only with consent and redacted diagnostics.</li>
+              <li>Keep release artifact checks and privacy scans green.</li>
+            </ul>
+          </article>
+          <article>
+            <span class="priority">P1 · DAILY USE</span>
+            <h3>Make transfers easier to trust</h3>
+            <ul>
+              <li>Persistent queue and restart recovery.</li>
+              <li>Recursive search, transfer history, favorites, and Quick Look.</li>
+              <li>Reproducible throughput and memory benchmarks.</li>
+              <li>Redacted diagnostics, renderer sandbox research, and navigation denial.</li>
+            </ul>
+          </article>
+          <article>
+            <span class="priority">P2 · POWER WITHOUT BLOAT</span>
+            <h3>Add optional depth</h3>
+            <ul>
+              <li>Pause/resume or checkpointing where MTP devices permit it.</li>
+              <li>Optional post-copy content hashes.</li>
+              <li>Queue prioritization, compare/sync preview, and backend fallback.</li>
+              <li>Evaluate Finder mounting and Wi-Fi as separate, opt-in products.</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section class="faq-section" id="faq">
+        <div class="section-heading inverse">
+          <div>
+            <p class="eyebrow">PLAIN ANSWERS</p>
+            <h2>Before you plug in.</h2>
+          </div>
+        </div>
+        <div class="faq-list">
+          <details>
+            <summary>Is this the old Google Android File Transfer app?</summary>
+            <p>No. It is an independent open-source project. Google’s former Mac file-transfer destination no longer distributes that browser.</p>
+          </details>
+          <details>
+            <summary>Do I install anything on Android?</summary>
+            <p>No. Unlock the phone and choose File Transfer, Transferring files, or MTP from its USB options.</p>
+          </details>
+          <details>
+            <summary>Do I need USB debugging?</summary>
+            <p>No. The app uses Android’s normal MTP shared-storage mode, not ADB.</p>
+          </details>
+          <details>
+            <summary>Are files uploaded anywhere?</summary>
+            <p>No. File contents move over the cable. The app has no analytics or telemetry. Its update check requests release metadata from GitHub; file contents and phone details are not sent.</p>
+          </details>
+          <details>
+            <summary>Why are there two downloads?</summary>
+            <p>Use arm64 for Apple-silicon Macs and x64 for Intel Macs. Each architecture is packaged and verified separately.</p>
+          </details>
+          <details>
+            <summary>Is it signed and notarized?</summary>
+            <p>Yes. The official v@@VERSION@@ apps and DMGs are Developer ID signed, Apple-notarized, stapled, Gatekeeper-assessed, and rechecked after upload. SHA-256 checksums are published.</p>
+          </details>
+          <details>
+            <summary>Does it work with every Android phone?</summary>
+            <p>Do not assume that yet. It targets standard MTP/File Transfer storage, but testing is still deepest on Samsung hardware. Broader reports are welcome.</p>
+          </details>
+        </div>
+      </section>
+
+      <section class="closing-cta">
+        <img src="./assets/app-icon.svg" alt="" />
+        <div>
+          <p class="eyebrow">FREE · OPEN SOURCE · LOCAL USB</p>
+          <h2>Your cable should be enough.</h2>
+          <p>Download the early release, test your device, and help make basic interoperability ordinary.</p>
+        </div>
+        <div class="closing-actions">
+          <a class="button button-primary" href="https://github.com/autonomath/android-file-transfer-for-macos/releases/latest">Get the latest release ↗</a>
+          <a href="https://github.com/autonomath/android-file-transfer-for-macos">Read the source ↗</a>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div>
+        <strong>Android File Transfer for macOS</strong>
+        <p>MIT-licensed application source. Bundled dependencies retain their upstream licenses.</p>
+      </div>
+      <div>
+        <a href="https://github.com/autonomath/android-file-transfer-for-macos/releases">Releases</a>
+        <a href="https://github.com/autonomath/android-file-transfer-for-macos/blob/main/SECURITY.md">Security</a>
+        <a href="https://github.com/autonomath/android-file-transfer-for-macos/blob/main/CONTRIBUTING.md">Contribute</a>
+        <a href="https://github.com/autonomath/android-file-transfer-for-macos/blob/main/marketing/competitive-landscape.md">Research notes</a>
+      </div>
+      <p class="legal">
+        Android is a trademark of Google LLC. macOS is a trademark of Apple Inc.
+        This independent project is not affiliated with or endorsed by Google or Apple.
+      </p>
+    </footer>
+  </body>
+</html>

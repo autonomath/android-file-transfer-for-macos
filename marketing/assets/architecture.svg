@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">Android File Transfer for macOS architecture</title>
+  <desc id="desc">The React renderer uses a context-isolated preload API to reach Electron main, which controls a long-lived MTP helper using libmtp and libusb. A native AppKit addon handles phone-to-Finder file promises.</desc>
+  <rect width="1600" height="900" fill="#10282d"/>
+  <g font-family="Avenir Next">
+    <text x="82" y="80" fill="#9bc654" font-family="Menlo" font-size="18" font-weight="700" letter-spacing="3">APP ARCHITECTURE</text>
+    <text x="80" y="160" fill="#fffdf8" font-family="Georgia" font-size="68" font-weight="600">A narrow bridge to native MTP.</text>
+    <text x="82" y="208" fill="#b5c4c2" font-size="22">Commands and transfers are globally serialized so libmtp sees one deliberate operation at a time.</text>
+  </g>
+  <g font-family="Avenir Next">
+    <g transform="translate(80 335)"><rect width="235" height="190" fill="#f8f4ea"/><text x="26" y="43" fill="#607b45" font-family="Menlo" font-size="15" font-weight="700">01 · INTERFACE</text><text x="26" y="91" fill="#13272a" font-family="Georgia" font-size="31" font-weight="600">React UI</text><text x="26" y="131" fill="#405c61" font-size="17">Two panes, queue,</text><text x="26" y="158" fill="#405c61" font-size="17">connection state</text></g>
+    <path d="M315 430h70" stroke="#9bc654" stroke-width="8"/><path d="m385 430-20-14v28Z" fill="#9bc654"/>
+    <g transform="translate(385 335)"><rect width="235" height="190" fill="#e5edd7"/><text x="26" y="43" fill="#607b45" font-family="Menlo" font-size="15" font-weight="700">02 · TRUST GATE</text><text x="26" y="91" fill="#13272a" font-family="Georgia" font-size="29" font-weight="600">Preload API</text><text x="26" y="131" fill="#405c61" font-size="17">Context isolated,</text><text x="26" y="158" fill="#405c61" font-size="17">narrow IPC surface</text></g>
+    <path d="M620 430h70" stroke="#9bc654" stroke-width="8"/><path d="m690 430-20-14v28Z" fill="#9bc654"/>
+    <g transform="translate(690 335)"><rect width="235" height="190" fill="#d7e7ee"/><text x="26" y="43" fill="#245d7a" font-family="Menlo" font-size="15" font-weight="700">03 · ORCHESTRATOR</text><text x="26" y="91" fill="#13272a" font-family="Georgia" font-size="24" font-weight="600">Electron main</text><text x="26" y="131" fill="#405c61" font-size="17">Queue, filesystem,</text><text x="26" y="158" fill="#405c61" font-size="17">helper lifecycle</text></g>
+    <path d="M925 430h70" stroke="#5ca7e5" stroke-width="8"/><path d="m995 430-20-14v28Z" fill="#5ca7e5"/>
+    <g transform="translate(995 335)"><rect width="235" height="190" fill="#c7dce6"/><text x="26" y="43" fill="#245d7a" font-family="Menlo" font-size="15" font-weight="700">04 · NATIVE HELPER</text><text x="26" y="91" fill="#13272a" font-family="Georgia" font-size="29" font-weight="600">mtp-json</text><text x="26" y="131" fill="#405c61" font-size="17">Long-lived protocol,</text><text x="26" y="158" fill="#405c61" font-size="17">drops privileges</text></g>
+    <path d="M1230 430h70" stroke="#5ca7e5" stroke-width="8"/><path d="m1300 430-20-14v28Z" fill="#5ca7e5"/>
+    <g transform="translate(1300 335)"><rect width="220" height="190" fill="#5ca7e5"/><text x="25" y="43" fill="#10282d" font-family="Menlo" font-size="15" font-weight="700">05 · DEVICE</text><text x="25" y="91" fill="#10282d" font-family="Georgia" font-size="30" font-weight="600">MTP phone</text><text x="25" y="131" fill="#173950" font-size="17">libmtp 1.1.23</text><text x="25" y="158" fill="#173950" font-size="17">libusb 1.0.30</text></g>
+    <path d="M808 525v93h-285" fill="none" stroke="#e0a342" stroke-width="6"/><path d="m523 618 20-14v28Z" fill="#e0a342"/>
+    <g transform="translate(220 620)"><rect width="430" height="150" fill="#2b4146" stroke="#e0a342" stroke-width="3"/><text x="28" y="42" fill="#e0a342" font-family="Menlo" font-size="15" font-weight="700">NATIVE FINDER EDGE</text><text x="28" y="81" fill="#fffdf8" font-family="Georgia" font-size="27" font-weight="600">AppKit file promises</text><text x="28" y="116" fill="#b5c4c2" font-size="17">USB download starts after Finder accepts a destination.</text></g>
+    <path d="M650 695h170" stroke="#e0a342" stroke-width="6"/><path d="m820 695-20-14v28Z" fill="#e0a342"/>
+    <g transform="translate(820 620)"><rect width="260" height="150" fill="#efd39e"/><text x="28" y="42" fill="#765022" font-family="Menlo" font-size="15" font-weight="700">DESTINATION</text><text x="28" y="83" fill="#13272a" font-family="Georgia" font-size="29" font-weight="600">Finder</text><text x="28" y="116" fill="#604926" font-size="17">Native drag target</text></g>
+    <g transform="translate(1170 620)"><rect width="350" height="150" fill="#17363c" stroke="#315159"/><text x="26" y="40" fill="#9bc654" font-family="Menlo" font-size="15" font-weight="700">RELEASE BOUNDARY</text><text x="26" y="76" fill="#fffdf8" font-size="17">Hardened runtime · USB entitlement</text><text x="26" y="105" fill="#fffdf8" font-size="17">only on the helper · native arm64/x64</text><text x="26" y="132" fill="#aabbb8" font-size="14">Renderer sandbox remains a hardening target.</text></g>
+  </g>
+</svg>

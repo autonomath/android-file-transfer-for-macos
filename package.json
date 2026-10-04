@@ -1,0 +1,158 @@
+{
+  "name": "android-file-transfer-for-macos",
+  "version": "0.2.1",
+  "description": "Free and open-source USB file transfer between Android devices and macOS.",
+  "license": "MIT",
+  "author": "Android File Transfer for macOS contributors",
+  "homepage": "https://github.com/autonomath/android-file-transfer-for-macos#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/autonomath/android-file-transfer-for-macos.git"
+  },
+  "bugs": {
+    "url": "https://github.com/autonomath/android-file-transfer-for-macos/issues"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "type": "module",
+  "main": "out/main/index.js",
+  "scripts": {
+    "native:deps": "bash scripts/build-native-deps.sh",
+    "native:build": "node scripts/build-native.mjs",
+    "dev": "npm run native:build && bash scripts/run-dev.sh",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run native:build && npm run typecheck && electron-vite build",
+    "package:mac": "MACOSX_DEPLOYMENT_TARGET=13.0 NATIVE_BUILD_FOR_PACKAGE=1 npm run build && node scripts/smoke-current-package.mjs --prepare && electron-builder --mac dmg --publish never && node scripts/smoke-current-package.mjs",
+    "release:mac": "bash scripts/release-macos.sh",
+    "release:sources": "bash scripts/package-third-party-sources.sh",
+    "check": "npm run check:android-usb-parser && npm run check:mac-mtp-camera-owner && npm run check:device-identity && npm run check:atomic-download && npm run check:transfer-collisions && npm run check:reliable-session && npm run check:connection-states && npm run check:device-selection && npm run check:session-teardown-queue && npm run check:transfer-drag && npm run check:transfer-queue && npm run check:download-space && npm run check:download-conflicts && npm run check:download-timestamps && npm run check:folder-timestamps && npm run check:folder-copy-planning && npm run check:folder-listing && npm run check:upload && npm run check:move && npm run check:phone-mutations && npm run check:local-pane && npm run check:local-mutations && npm run check:app-updates && npm run check:refresh-feedback && npm run check:keyboard-shortcuts && npm run check:selection && npm run check:app-menu && npm run check:context-menu && npm run check:diagnostics && npm run check:theme && npm run check:view-mode && npm run check:hidden-files && npm run check:storage-metadata && npm run check:startup-fallback && npm run check:package-icon && npm run build && npm run check:native-bundle",
+    "check:android-usb-parser": "node scripts/check-android-usb-parser.mjs",
+    "check:mac-mtp-camera-owner": "node scripts/check-mac-mtp-camera-owner.mjs",
+    "check:device-identity": "node scripts/check-device-identity.mjs",
+    "check:atomic-download": "node scripts/check-atomic-download.mjs",
+    "check:transfer-collisions": "node scripts/check-transfer-collisions.mjs",
+    "check:reliable-session": "node scripts/check-reliable-session-contract.mjs",
+    "check:connection-states": "node scripts/check-connection-states-contract.mjs",
+    "check:device-selection": "node scripts/check-device-selection-contract.mjs",
+    "check:session-teardown-queue": "node scripts/check-session-teardown-queue.mjs",
+    "check:transfer-drag": "node scripts/check-transfer-drag-contract.mjs",
+    "check:transfer-queue": "node scripts/check-transfer-queue-contract.mjs",
+    "check:download-space": "node scripts/check-download-space-contract.mjs",
+    "check:download-conflicts": "node scripts/check-download-conflicts-contract.mjs",
+    "check:download-timestamps": "node scripts/check-download-timestamps-contract.mjs",
+    "check:folder-timestamps": "node scripts/check-folder-timestamps-contract.mjs",
+    "check:folder-copy-planning": "node scripts/check-folder-copy-planning-contract.mjs",
+    "check:folder-listing": "node scripts/check-folder-listing-contract.mjs",
+    "check:upload": "node scripts/check-upload-contract.mjs",
+    "check:move": "node scripts/check-move-contract.mjs",
+    "check:phone-mutations": "node scripts/check-phone-mutations.mjs",
+    "check:local-pane": "node scripts/check-local-pane-contract.mjs",
+    "check:local-mutations": "node scripts/check-local-mutations.mjs",
+    "check:app-updates": "node scripts/check-app-updates.mjs",
+    "check:refresh-feedback": "node scripts/check-refresh-feedback-contract.mjs",
+    "check:keyboard-shortcuts": "node scripts/check-keyboard-shortcuts-contract.mjs",
+    "check:selection": "node scripts/check-selection-contract.mjs",
+    "check:app-menu": "node scripts/check-app-menu-contract.mjs",
+    "check:context-menu": "node scripts/check-context-menu-contract.mjs",
+    "check:diagnostics": "node scripts/check-diagnostics-contract.mjs",
+    "check:theme": "node scripts/check-theme-contract.mjs",
+    "check:view-mode": "node scripts/check-view-mode-contract.mjs",
+    "check:hidden-files": "node scripts/check-hidden-files-contract.mjs",
+    "check:storage-metadata": "node scripts/check-storage-metadata-contract.mjs",
+    "check:startup-fallback": "node scripts/check-startup-fallback-contract.mjs",
+    "check:native-bundle": "node scripts/check-native-bundle-contract.mjs",
+    "check:package-icon": "node scripts/check-package-icon-contract.mjs",
+    "check:public-source": "node scripts/check-public-source.mjs",
+    "mtp:smoke": "node scripts/mtp-session-smoke.mjs",
+    "mtp:smoke:wait": "node scripts/mtp-session-smoke.mjs --wait-for-new-address"
+  },
+  "dependencies": {
+    "@electron-toolkit/preload": "^3.0.2",
+    "electron-updater": "6.8.9",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@electron/osx-sign": "2.5.0",
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^5.1.1",
+    "electron": "44.4.5",
+    "electron-builder": "26.15.3",
+    "electron-vite": "^5.0.0",
+    "node-addon-api": "^8.9.0",
+    "node-gyp": "^11.5.0",
+    "typescript": "^5.7.2",
+    "vite": "^7.2.7"
+  },
+  "build": {
+    "appId": "io.github.autonomath.androidfiletransfer",
+    "productName": "Android File Transfer for macOS",
+    "artifactName": "Android-File-Transfer-for-macOS-${version}-${arch}.${ext}",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "autonomath",
+        "repo": "android-file-transfer-for-macos"
+      }
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/bin",
+        "to": "bin"
+      },
+      {
+        "from": "resources/lib",
+        "to": "lib"
+      },
+      {
+        "from": "LICENSE",
+        "to": "LICENSE.txt"
+      },
+      {
+        "from": "THIRD_PARTY_NOTICES.md",
+        "to": "THIRD_PARTY_NOTICES.md"
+      },
+      {
+        "from": "licenses",
+        "to": "licenses"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.utilities",
+      "icon": "build/icon.icns",
+      "target": "dmg",
+      "minimumSystemVersion": "13.0",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "strictVerify": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.inherit.plist",
+      "sign": "build/sign-macos.mjs",
+      "notarize": false,
+      "binaries": [
+        "Contents/Resources/bin/mtp-json",
+        "Contents/Resources/bin/file-promise-drag.node",
+        "Contents/Resources/lib/libmtp.9.dylib",
+        "Contents/Resources/lib/libusb-1.0.0.dylib"
+      ]
+    },
+    "dmg": {
+      "sign": true,
+      "writeUpdateInfo": false
+    }
+  },
+  "overrides": {
+    "js-yaml": "4.3.2"
+  }
+}

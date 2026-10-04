@@ -1,0 +1,47 @@
+name: Bug report
+description: Report a reproducible device, transfer, or interface problem.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not paste phone file listings, device serial numbers, credentials, or unrelated personal data.
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      placeholder: v0.1.0
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and Mac architecture
+      placeholder: macOS 15.5, Apple silicon
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Android device and Android version
+      placeholder: Phone model, Android version
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: Copy Report
+      description: Paste the privacy-bounded Copy Report from Details if it is relevant.
+      render: text

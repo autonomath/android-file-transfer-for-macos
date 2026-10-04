@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "version": "0.2.1",
+  "tag": "v0.2.1",
+  "releaseStatus": "release",
+  "macOSMinimum": "13.0",
+  "architectures": ["arm64", "x64"],
+  "assets": {
+    "arm64Dmg": "Android-File-Transfer-for-macOS-0.2.1-arm64.dmg",
+    "x64Dmg": "Android-File-Transfer-for-macOS-0.2.1-x64.dmg",
+    "checksums": "SHA256SUMS.txt"
+  },
+  "features": {
+    "mtpBrowse": "shipped",
+    "bidirectionalFileFolderCopy": "shipped",
+    "finderFilePromises": "shipped",
+    "phoneRename": "shipped",
+    "phoneDelete": "shipped",
+    "replaceExisting": "shipped",
+    "macFileManagement": "shipped",
+    "inAppUpdater": "shipped",
+    "resume": "not-implemented",
+    "finderMount": "not-implemented"
+  }
+}

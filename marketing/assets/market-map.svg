@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">Android to Mac transfer market map</title>
+  <desc id="desc">Options are placed from send-only to storage browsing on the horizontal axis and from dependent or mediated to direct, local, and accountless on the vertical axis.</desc>
+  <rect width="1600" height="900" fill="#10282d"/>
+  <g font-family="Avenir Next">
+    <text x="70" y="66" fill="#9bc654" font-family="Menlo" font-size="17" font-weight="700" letter-spacing="3">MARKET MAP · CATEGORY POSITION, NOT SPEED RANKING</text>
+    <text x="68" y="133" fill="#fffdf8" font-family="Georgia" font-size="61" font-weight="600">Where each transfer model actually sits.</text>
+  </g>
+  <g transform="translate(190 200)">
+    <rect width="1260" height="570" fill="#0b2024" stroke="#315159" stroke-width="2"/>
+    <rect y="0" width="630" height="285" fill="#17343a" opacity=".72"/><rect x="630" y="0" width="630" height="285" fill="#183b3b" opacity=".82"/>
+    <rect y="285" width="630" height="285" fill="#15282d"/><rect x="630" y="285" width="630" height="285" fill="#1c2d31"/>
+    <path d="M630 0v570M0 285h1260" stroke="#46636a" stroke-width="2" stroke-dasharray="8 10"/>
+    <path d="M0 570h1260" stroke="#9bc654" stroke-width="5"/><path d="M0 570V0" stroke="#9bc654" stroke-width="5"/>
+    <path d="m1260 570-24-14v28Z" fill="#9bc654"/><path d="M0 0-14 24h28Z" fill="#9bc654"/>
+    <g font-family="Avenir Next">
+      <text x="26" y="44" fill="#829795" font-family="Menlo" font-size="14">DIRECT / LOCAL / ACCOUNTLESS</text>
+      <text x="26" y="329" fill="#829795" font-family="Menlo" font-size="14">DEPENDENT / MEDIATED / ACCOUNT</text>
+      <text x="975" y="548" fill="#829795" font-family="Menlo" font-size="14">BROWSE + MANAGE STORAGE →</text>
+      <text x="24" y="548" fill="#829795" font-family="Menlo" font-size="14">SEND SELECTED ITEMS</text>
+      <g transform="translate(790 72)"><rect width="290" height="82" rx="3" fill="#9bc654"/><text x="18" y="32" fill="#10282d" font-size="20" font-weight="800">THIS PROJECT</text><text x="18" y="59" fill="#314526" font-size="15">USB MTP · free · open source</text></g>
+      <g transform="translate(710 180)"><rect width="245" height="66" rx="3" fill="#e7efda"/><text x="16" y="27" fill="#13272a" font-size="17" font-weight="750">OpenMTP · SwiftMTP</text><text x="16" y="49" fill="#405c61" font-size="13">open-source MTP browsers</text></g>
+      <g transform="translate(975 190)"><rect width="238" height="66" rx="3" fill="#d8e8ee"/><text x="16" y="27" fill="#13272a" font-size="17" font-weight="750">MacDroid · iDroid</text><text x="16" y="49" fill="#405c61" font-size="13">paid/freemium file managers</text></g>
+      <g transform="translate(111 83)"><rect width="248" height="66" rx="3" fill="#dfe9ce"/><text x="16" y="27" fill="#13272a" font-size="17" font-weight="750">LocalSend · NearDrop</text><text x="16" y="49" fill="#405c61" font-size="13">local nearby sending</text></g>
+      <g transform="translate(375 165)"><rect width="232" height="66" rx="3" fill="#cbdde4"/><text x="16" y="27" fill="#13272a" font-size="17" font-weight="750">Quick Share ↔ AirDrop</text><text x="16" y="49" fill="#405c61" font-size="13">selected supported devices</text></g>
+      <g transform="translate(838 348)"><rect width="302" height="68" rx="3" fill="#efd39e"/><text x="16" y="28" fill="#13272a" font-size="17" font-weight="750">AirDroid · Dr.Fone · AnyDroid</text><text x="16" y="51" fill="#604926" font-size="13">commercial suites / companion flows</text></g>
+      <g transform="translate(550 456)"><rect width="264" height="66" rx="3" fill="#d9d5cb"/><text x="16" y="27" fill="#13272a" font-size="17" font-weight="750">Drive · Dropbox · OneDrive</text><text x="16" y="49" fill="#405c61" font-size="13">cloud storage workflows</text></g>
+      <g transform="translate(226 365)"><rect width="230" height="66" rx="3" fill="#d9d5cb"/><text x="16" y="27" fill="#13272a" font-size="17" font-weight="750">PairDrop · Send Anywhere</text><text x="16" y="49" fill="#405c61" font-size="13">browser / relay-capable send</text></g>
+      <g transform="translate(1035 470)"><rect width="185" height="61" rx="3" fill="#d9d5cb"/><text x="14" y="26" fill="#13272a" font-size="16" font-weight="750">OEM backup suites</text><text x="14" y="47" fill="#405c61" font-size="12">migration, not browsing</text></g>
+    </g>
+  </g>
+  <g font-family="Avenir Next" font-size="17" fill="#b5c4c2">
+    <text x="190" y="818">SEND SELECTED ITEMS</text><text x="1450" y="818" text-anchor="end">BROWSE / MANAGE SHARED STORAGE</text>
+    <text x="86" y="265" transform="rotate(-90 86 265)">DIRECT / LOCAL / ACCOUNTLESS</text>
+    <text x="86" y="755" transform="rotate(-90 86 755)">DEPENDENT / MEDIATED</text>
+  </g>
+  <text x="1450" y="866" fill="#7f9592" text-anchor="end" font-family="Menlo" font-size="13">Specialized tools such as ADB, Android Studio, Smart Switch, HiSuite, Syncthing, and Image Capture sit outside the general-use quadrants.</text>
+</svg>
