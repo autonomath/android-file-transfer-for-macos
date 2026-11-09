@@ -235,6 +235,67 @@ export async function scanForLargeFiles(options: LargeFileScanOptions): Promise<
   return { entries: currentEntries(), foldersChecked, complete, error };
 }
 
+// Looks up remembered files by their folder names, so they can be copied before the scan reaches them.
+// Each folder on the way is listed once. Throws when the phone cannot list a folder.
+export async function findRememberedLargeFiles(
+  entries: LargeFileEntry[],
+  storages: Array<{ id: number; name: string }>,
+  list: (storageId: number, folderId: number) => Promise<MtpObject[]>,
+  now: () => number = Date.now
+): Promise<{ found: LargeFileEntry[]; missing: LargeFileEntry[] }> {
+  const listings = new Map<string, Promise<MtpObject[]>>();
+  function listOnce(storageId: number, folderId: number): Promise<MtpObject[]> {
+    const key = `${storageId}:${folderId}`;
+    let listing = listings.get(key);
+    if (!listing) {
+      listing = list(storageId, folderId);
+      listings.set(key, listing);
+    }
+    return listing;
+  }
+
+  const found: LargeFileEntry[] = [];
+  const missing: LargeFileEntry[] = [];
+  for (const entry of entries) {
+    const storage = storages.find((candidate) => candidate.name === entry.folderPath[0]);
+    let object: MtpObject | undefined;
+    const crumbs: LargeFileCrumb[] = [];
+    if (storage) {
+      let folderId = STORAGE_ROOT_ID;
+      let reached = true;
+      crumbs.push({ label: storage.name, folderId });
+      for (const name of entry.folderPath.slice(1)) {
+        const folder = (await listOnce(storage.id, folderId)).find(
+          (candidate) => candidate.kind === 'folder' && candidate.name === name
+        );
+        if (!folder) {
+          reached = false;
+          break;
+        }
+        folderId = folder.id;
+        crumbs.push({ label: name, folderId });
+      }
+      if (reached) {
+        object = (await listOnce(storage.id, folderId)).find(
+          (candidate) => candidate.kind === 'file' && candidate.name === entry.name
+        );
+      }
+    }
+    if (storage && object) {
+      found.push({
+        ...entry,
+        size: object.size,
+        modified: object.modified,
+        seenAt: now(),
+        live: { storageId: storage.id, crumbs, object }
+      });
+    } else {
+      missing.push(entry);
+    }
+  }
+  return { found, missing };
+}
+
 export function serializeRememberedLargeFiles(entries: LargeFileEntry[]): string {
   return JSON.stringify({
     version: 1,

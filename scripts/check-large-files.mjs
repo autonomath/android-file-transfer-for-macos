@@ -198,4 +198,43 @@ assert.deepEqual(parsed, [
   { folderPath: ['Internal storage'], name: 'a.mp4', size: 60 * MB, modified: 1, seenAt: 2 }
 ]);
 
+// Remembered files are found by folder names before a scan reaches them, listing each folder once.
+const lookupPhone = fakePhone(phoneTree());
+const lookup = await largeFiles.findRememberedLargeFiles(
+  [
+    { folderPath: ['Internal storage', 'DCIM', 'Camera'], name: 'VID_1.mp4', size: 1, modified: 1, seenAt: 1 },
+    { folderPath: ['Internal storage', 'Movies'], name: 'clip.mp4', size: 1, modified: 1, seenAt: 1 },
+    { folderPath: ['Internal storage', 'DCIM', 'Camera'], name: 'gone.mp4', size: 1, modified: 1, seenAt: 1 },
+    { folderPath: ['Internal storage', 'Nowhere'], name: 'x.bin', size: 1, modified: 1, seenAt: 1 }
+  ],
+  [STORAGE],
+  lookupPhone.list,
+  () => 7
+);
+assert.deepEqual(lookup.found.map((entry) => entry.name), ['VID_1.mp4', 'clip.mp4']);
+assert.deepEqual(lookup.missing.map((entry) => entry.name), ['gone.mp4', 'x.bin']);
+assert.equal(lookup.found[0].live.object.id, lookupPhone.ids.get('DCIM/Camera/VID_1.mp4'));
+assert.equal(lookup.found[0].size, 900 * MB, 'The size on the phone now replaces the remembered size.');
+assert.equal(lookup.found[0].seenAt, 7);
+assert.deepEqual(lookup.found[0].live.crumbs.map((crumb) => crumb.label), ['Internal storage', 'DCIM', 'Camera']);
+assert.deepEqual(lookupPhone.listed, ['/', 'DCIM', 'DCIM/Camera', 'Movies'], 'Each folder is listed once.');
+
+const app = await readFile(resolve(root, 'src/renderer/src/App.tsx'), 'utf8');
+assert.match(
+  app,
+  /async function copyRowsToMac[\s\S]*?const rememberedRows = fileRows\.filter\(\(row\) => row\.largeFile && !row\.object\);[\s\S]*?findRememberedRows\(rememberedRows\)/,
+  'Copy and Move must look up remembered Large files rows instead of silently dropping them.'
+);
+assert.match(
+  app,
+  /const canRunPhoneTransfer =\s*selectedDownloadRows\.length > 0/,
+  'The phone-to-Mac button must count remembered Large files rows as transferable.'
+);
+const lookupBody = app.slice(app.indexOf('async function findRememberedRows'), app.indexOf('return foundRows;'));
+assert.ok(lookupBody.length > 0, 'findRememberedRows must exist.');
+assert.ok(
+  !lookupBody.includes('cancelFolderListing'),
+  'The lookup must wait for a running listing: cancelling one mid-listing leaves the phone unresponsive.'
+);
+
 console.log('Large-file scan checks passed.');

@@ -139,7 +139,9 @@ For an authorized Pixel 9 test device, identify it locally with `adb devices` an
 - Select results with click, Shift-click, Cmd-click, Cmd+A, and the tickboxes. Confirm a tickbox adds or removes only its own file, including the last selected one, the header tickbox selects all or none, the transfer bar totals the selection, and Copy queues it to the open Mac folder like any other copy.
 - Copy a disposable file over 50 MB into the phone's Download folder and Rescan. Move it to the Mac and confirm it leaves Large files when the move completes. Copy it back, Delete it from Large files, and confirm it does not return after Rescan or when Download is opened in the browser.
 - Choose Deeper, then Whole phone. Confirm each starts a new scan and Stop ends it right away with the number of folders checked.
-- Reconnect the phone and reopen Large files. Confirm earlier results appear immediately, dimmed with a last seen label, become transferable as their folders are checked again, and a file deleted on the phone in between disappears once its folder is checked.
+- Reconnect the phone and reopen Large files. Confirm earlier results appear immediately, dimmed with a last seen label, become live as their folders are checked again, and a file deleted on the phone in between disappears once its folder is checked.
+- While that scan is still running, select several dimmed results and Copy or Move them to the Mac. Confirm the button is enabled, the queue says it is finding the files on the phone, the transfer starts without waiting for the scan, and a file deleted on the phone in between is reported and removed from the list.
+- In the Mac pane, select one folder. Confirm the phone transfer button and right-click Move name that folder and phone files go into it; with no folder or several items selected, they go into the open Mac folder.
 - While a large copy runs, open Large files. Confirm the status says the scan may pause while files copy, and browsing still responds after closing the view.
 
 ## Failure-State Checks

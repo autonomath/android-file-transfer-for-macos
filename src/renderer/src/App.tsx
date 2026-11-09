@@ -56,6 +56,7 @@ import { validateLocalItemName } from '../../shared/localMutation';
 import { nextKeepBothPhoneName } from '../../shared/transferCollision';
 import {
   LARGE_FILE_MIN_BYTES,
+  findRememberedLargeFiles,
   parseRememberedLargeFiles,
   scanForLargeFiles,
   serializeRememberedLargeFiles,
@@ -1099,11 +1100,29 @@ function rememberLargeFiles(memoryKey: string | null, entries: LargeFileEntry[])
   }
 }
 
+function largeFilePath(entry: LargeFileEntry): string {
+  return [...entry.folderPath, entry.name].join('/');
+}
+
+function largeFileStorages(device: MtpDeviceInventory): Array<{ id: number; name: string }> {
+  return device.storages.map((storage) => ({ id: storage.id, name: storageDisplayName(storage) }));
+}
+
+function phoneFolderLister(device: MtpDeviceInventory): (storageId: number, folderId: number) => Promise<MtpObject[]> {
+  return async (storageId, folderId) => {
+    const listing = await window.mtp.listFolder(device.index, device.connectionId, storageId, folderId);
+    if (!listing.ok) {
+      throw new Error(listing.message || 'The phone did not list a folder.');
+    }
+    return listing.objects;
+  };
+}
+
 function browserRowForLargeFile(entry: LargeFileEntry, deviceConnectionId: string): BrowserRow {
   return {
     key: entry.live
       ? objectRowKey(deviceConnectionId, entry.live.object.storageId, entry.live.object.id)
-      : `remembered:${[...entry.folderPath, entry.name].join('/')}`,
+      : `remembered:${largeFilePath(entry)}`,
     name: entry.name,
     kind: 'file',
     size: entry.size,
@@ -1150,16 +1169,10 @@ function LargeFilesBar({
     setProgress(null);
     setOutcome(null);
     const result = await scanForLargeFiles({
-      storages: device.storages.map((storage) => ({ id: storage.id, name: storageDisplayName(storage) })),
+      storages: largeFileStorages(device),
       depth: nextDepth,
       known: entries,
-      list: async (storageId, folderId) => {
-        const listing = await window.mtp.listFolder(device.index, device.connectionId, storageId, folderId);
-        if (!listing.ok) {
-          throw new Error(listing.message || 'The phone did not list a folder.');
-        }
-        return listing.objects;
-      },
+      list: phoneFolderLister(device),
       shouldStop: () => stopRequested.current || scanRun.current !== run,
       onUpdate: (update) => {
         if (scanRun.current === run) {
@@ -1386,6 +1399,9 @@ export function App(): JSX.Element {
   const revealRowKey = useRef<string | null>(null);
   // Object IDs deleted or moved off the phone during this connection; a running scan may still report them.
   const forgottenObjectIds = useRef(new Set<number>());
+  // Remembered files looked up before the scan reached them, by path; null means no longer on the phone.
+  // The scan reports such files from its starting memory until it lists their folder, so these win.
+  const largeFileLookups = useRef(new Map<string, LargeFileEntry | null>());
   const browserSort = useRef<{ key: SortKey; direction: SortDirection } | null>(null);
 
   const inventoryDevices = inventory?.devices ?? [];
@@ -1451,6 +1467,10 @@ export function App(): JSX.Element {
   const allRowsSelected = rows.length > 0 && selectedRows.length === rows.length;
   const selectedTransferRows = selectedRows.filter(
     (row) => (row.kind === 'file' || row.kind === 'folder') && row.object
+  );
+  // Remembered Large files rows can also go to the Mac; copyRowsToMac looks them up first.
+  const selectedDownloadRows = selectedRows.filter(
+    (row) => (row.kind === 'file' || row.kind === 'folder') && (row.object || row.largeFile)
   );
   const sortedLocalEntries = useMemo(
     () => [...localEntries].sort((a, b) => compareLocalEntries(a, b, localSortKey, localSortDirection)),
@@ -1581,14 +1601,17 @@ export function App(): JSX.Element {
   const usbBlocked = !!rawDevice && !fileTransferInactive &&
     (connectionPhase === 'usb-busy' || !!usbConflict);
   const currentFolderName = location.crumbs[location.crumbs.length - 1]?.label ?? 'folder';
-  const macDestinationLabel = folderLabelForPath(localPath || destination);
+  // One selected Mac folder is where phone files go; otherwise the open Mac folder.
+  const macTargetFolder =
+    selectedLocalEntries.length === 1 && selectedLocalEntries[0].kind === 'folder' ? selectedLocalEntries[0].path : '';
+  const macDestinationLabel = folderLabelForPath(macTargetFolder || localPath || destination);
   const phoneDestinationLabel = location.storageId === null ? 'Phone folder' : currentFolderName;
   const phoneSelectionIsFilesOnly =
-    selectedTransferRows.length > 0 && selectedTransferRows.every((row) => row.kind === 'file');
+    selectedDownloadRows.length > 0 && selectedDownloadRows.every((row) => row.kind === 'file');
   const macSelectionIsFilesOnly =
     selectedLocalEntries.length > 0 && selectedLocalEntries.every((entry) => entry.kind === 'file');
   const canRunPhoneTransfer =
-    selectedTransferRows.length > 0 &&
+    selectedDownloadRows.length > 0 &&
     hasDevice &&
     (phoneTransferOperation === 'copy' || phoneSelectionIsFilesOnly);
   const canRunMacTransfer =
@@ -2821,7 +2844,7 @@ export function App(): JSX.Element {
       return;
     }
 
-    if (!selectedTransferRows.length) {
+    if (!selectedDownloadRows.length) {
       return;
     }
     void copySelectedToMac();
@@ -3873,6 +3896,7 @@ export function App(): JSX.Element {
 
   useEffect(() => {
     forgottenObjectIds.current = new Set();
+    largeFileLookups.current = new Map();
     setLargeFiles(readRememberedLargeFiles(largeFilesMemoryKey));
   }, [device?.connectionId]);
 
@@ -4367,6 +4391,9 @@ export function App(): JSX.Element {
   }
 
   async function chooseDestination(): Promise<string | null> {
+    if (macTargetFolder) {
+      return macTargetFolder;
+    }
     if (destination) {
       return destination;
     }
@@ -4393,6 +4420,14 @@ export function App(): JSX.Element {
     sourceDeviceConnectionId = device?.connectionId,
     operation: TransferOperation = 'copy'
   ): Promise<void> {
+    const rememberedRows = fileRows.filter((row) => row.largeFile && !row.object);
+    if (rememberedRows.length) {
+      const foundRows = await findRememberedRows(rememberedRows);
+      if (!foundRows) {
+        return;
+      }
+      fileRows = [...fileRows.filter((row) => !rememberedRows.includes(row)), ...foundRows];
+    }
     const validRows = fileRows.filter((row) => (row.kind === 'file' || row.kind === 'folder') && row.object);
     if (
       validRows.length === 0 ||
@@ -4539,7 +4574,7 @@ export function App(): JSX.Element {
 
   async function copySelectedToMac(operation: TransferOperation = 'copy'): Promise<void> {
     await copyRowsToMac(
-      selectedTransferRows,
+      selectedDownloadRows,
       device?.index,
       device?.connectionId,
       operation
@@ -4571,12 +4606,68 @@ export function App(): JSX.Element {
     }
   }
 
+  function withLargeFileLookups(entries: LargeFileEntry[]): LargeFileEntry[] {
+    return entries.flatMap((entry) => {
+      const lookup = entry.live ? entry : largeFileLookups.current.get(largeFilePath(entry));
+      const current = lookup === undefined ? entry : lookup;
+      if (!current) {
+        return [];
+      }
+      return current.live && forgottenObjectIds.current.has(current.live.object.id) ? [] : [current];
+    });
+  }
+
   function updateLargeFiles(entries: LargeFileEntry[], remember: boolean): void {
-    const next = entries.filter((entry) => !entry.live || !forgottenObjectIds.current.has(entry.live.object.id));
+    const next = withLargeFileLookups(entries);
     setLargeFiles(next);
     if (remember) {
       rememberLargeFiles(largeFilesMemoryKey, next);
     }
+  }
+
+  // Remembered rows have no phone handle until the scan rechecks their folder, so look them up on demand.
+  async function findRememberedRows(rememberedRows: BrowserRow[]): Promise<BrowserRow[] | null> {
+    if (!device) {
+      return null;
+    }
+    const source = device;
+    setTransferNotice({
+      phase: 'queued',
+      // Never cancel a running listing here: killing the session mid-listing leaves the phone unresponsive.
+      message: `Finding ${pluralize(rememberedRows.length, 'file')} on the phone. This starts after the folder being listed now.`
+    });
+    let result: Awaited<ReturnType<typeof findRememberedLargeFiles>>;
+    try {
+      result = await findRememberedLargeFiles(
+        rememberedRows.flatMap((row) => (row.largeFile ? [row.largeFile] : [])),
+        largeFileStorages(source),
+        phoneFolderLister(source)
+      );
+    } catch (error) {
+      setTransferNotice({
+        phase: 'failed',
+        message: `Could not find the files on the phone: ${error instanceof Error ? error.message : String(error)}`
+      });
+      return null;
+    }
+    result.found.forEach((entry) => largeFileLookups.current.set(largeFilePath(entry), entry));
+    result.missing.forEach((entry) => largeFileLookups.current.set(largeFilePath(entry), null));
+    const memoryKey = largeFilesMemoryKey;
+    setLargeFiles((current) => {
+      const next = withLargeFileLookups(current);
+      rememberLargeFiles(memoryKey, next);
+      return next;
+    });
+    const foundRows = result.found.map((entry) => browserRowForLargeFile(entry, source.connectionId));
+    const liveKeys = new Map(foundRows.map((row) => [`remembered:${largeFilePath(row.largeFile as LargeFileEntry)}`, row.key]));
+    setSelectedKeys((keys) => new Set([...keys].map((key) => liveKeys.get(key) ?? key)));
+    if (result.missing.length) {
+      setTransferNotice({
+        phase: 'failed',
+        message: `${pluralize(result.missing.length, 'file')} ${result.missing.length === 1 ? 'is' : 'are'} no longer on the phone and ${result.missing.length === 1 ? 'was' : 'were'} removed from Large files.`
+      });
+    }
+    return foundRows;
   }
 
   // Deleted or moved-off phone files leave Large files, its memory, and stale listings of their folders.
@@ -4912,15 +5003,17 @@ export function App(): JSX.Element {
     } as CSSProperties;
     const phoneContextRow = contextMenu.rowKey ? rows.find((row) => row.key === contextMenu.rowKey) : undefined;
     const phoneContextTransferRow =
-      phoneContextRow && (phoneContextRow.kind === 'file' || phoneContextRow.kind === 'folder') && phoneContextRow.object
+      phoneContextRow &&
+      (phoneContextRow.kind === 'file' || phoneContextRow.kind === 'folder') &&
+      (phoneContextRow.object || phoneContextRow.largeFile)
         ? phoneContextRow
         : undefined;
     const phoneActionRows =
       contextMenu.pane === 'phone'
         ? phoneContextTransferRow && !selectedKeys.has(phoneContextTransferRow.key)
           ? [phoneContextTransferRow]
-          : selectedTransferRows.length
-            ? selectedTransferRows
+          : selectedDownloadRows.length
+            ? selectedDownloadRows
             : phoneContextTransferRow
               ? [phoneContextTransferRow]
               : []
@@ -4939,6 +5032,8 @@ export function App(): JSX.Element {
               : []
         : [];
     const phoneActionCount = phoneActionRows.length;
+    // Delete needs a phone handle, which remembered Large files rows do not have yet; it skips them.
+    const phoneLiveActionRows = phoneActionRows.filter((row) => row.object);
     const localActionCount = localActionEntries.length;
     const phoneActionFilesOnly = phoneActionRows.length > 0 && phoneActionRows.every((row) => row.kind === 'file');
     const localActionFilesOnly = localActionEntries.length > 0 && localActionEntries.every((entry) => entry.kind === 'file');
@@ -5016,11 +5111,13 @@ export function App(): JSX.Element {
             type="button"
             role="menuitem"
             className="danger"
-            disabled={!phoneActionCount || phoneMutationBlocked}
+            disabled={!phoneLiveActionRows.length || phoneMutationBlocked}
             onClick={() => runContextMenuAction(() => void deletePhoneRows(phoneActionRows))}
           >
             <Trash2 size={15} />
-            <span>{phoneActionCount > 1 ? `Delete ${phoneActionCount} Items...` : 'Delete Permanently...'}</span>
+            <span>
+              {phoneLiveActionRows.length > 1 ? `Delete ${phoneLiveActionRows.length} Items...` : 'Delete Permanently...'}
+            </span>
           </button>
           <button
             type="button"
@@ -6004,9 +6101,9 @@ export function App(): JSX.Element {
               className="primary-button transfer-destination-button"
               disabled={!canRunPhoneTransfer}
               title={
-                phoneTransferOperation === 'move' && selectedTransferRows.length > 0 && !phoneSelectionIsFilesOnly
+                phoneTransferOperation === 'move' && selectedDownloadRows.length > 0 && !phoneSelectionIsFilesOnly
                   ? 'Move works with files only. Choose Copy for folders.'
-                  : `${phoneTransferOperation === 'move' ? 'Move' : 'Copy'} selected phone files to ${localPath || destination || 'a Mac folder'}`
+                  : `${phoneTransferOperation === 'move' ? 'Move' : 'Copy'} selected phone files to ${macTargetFolder || localPath || destination || 'a Mac folder'}`
               }
               aria-label={`${phoneTransferOperation === 'move' ? 'Move' : 'Copy'} selected phone files to Mac folder ${macDestinationLabel}`}
               onClick={() => void copySelectedToMac(phoneTransferOperation)}
@@ -6016,13 +6113,26 @@ export function App(): JSX.Element {
               <span>{macDestinationLabel}</span>
             </button>
             <span className="transfer-bar-status" title={`${phoneSelectionSummary}. ${phoneSelectionGuidance}`}>
-              {phoneTransferOperation === 'move' && selectedTransferRows.length > 0 && !phoneSelectionIsFilesOnly
+              {phoneTransferOperation === 'move' && selectedDownloadRows.length > 0 && !phoneSelectionIsFilesOnly
                 ? 'Move supports files only; folders can still be copied.'
                 : selectedRows.length
                   ? phoneSelectionSummary
                   : 'Select phone files or folders'}
             </span>
           </div>
+
+          {device && (
+            <LargeFilesBar
+              key={device.connectionId}
+              open={largeFilesOpen && hasDevice}
+              device={device}
+              entries={largeFiles}
+              showHidden={phoneShowHiddenFiles}
+              transfersActive={queueSummary.cancellable > 0}
+              rescanRequest={largeFilesRescanRequest}
+              onEntries={updateLargeFiles}
+            />
+          )}
 
           <div className="table-wrap">
             {isDraggingMacFiles && (
@@ -6104,18 +6214,6 @@ export function App(): JSX.Element {
                   </button>
                 )}
               </div>
-            )}
-            {device && (
-              <LargeFilesBar
-                key={device.connectionId}
-                open={largeFilesOpen && hasDevice}
-                device={device}
-                entries={largeFiles}
-                showHidden={phoneShowHiddenFiles}
-                transfersActive={queueSummary.cancellable > 0}
-                rescanRequest={largeFilesRescanRequest}
-                onEntries={updateLargeFiles}
-              />
             )}
             {hasDevice && !largeFilesOpen && !browserLoading && !currentFolderError && !isDraggingMacFiles && (
               <div className="folder-summary-bar" role="status" aria-live="polite">
