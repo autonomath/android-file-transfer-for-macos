@@ -90,17 +90,25 @@ const log = `
 2026-01-01 00:00:00 Df ptpcamerad[101:a] requestStart | Process: com.google.drivefs, Request Order Ascending: NO
 2026-01-01 00:00:00 Df ptpcamerad[99:a] requestStart | Process: com.apple.Preview, Request Order Ascending: NO
 `;
-const client = { pid: 201, bundleId: 'com.google.drivefs', appName: 'Google Drive', bundlePath: '/Applications/Google Drive.app' };
+const client = { pid: 201, bundleId: 'com.google.drivefs', appName: 'Google Drive', bundlePath: '/Applications/Google Drive.app', verified: true };
+const suspect = { ...client, verified: false };
 assert.deepEqual(findMacCameraClients(log, owner, processes), [client]);
 assert.deepEqual(findMacCameraClients(log + '\nptpcamerad[101:a] PTPCameraDevice | - 201-com.google.drivefs:[00001]', owner, processes), [], 'A client that released its camera session must not be offered Quit even when the app is still running.');
-assert.deepEqual(findMacCameraClients(log, { ...owner, pid: 102 }, processes), []);
-assert.deepEqual(findMacCameraClients(log, { ...owner, locationId: 9999 }, processes), []);
+assert.deepEqual(findMacCameraClients(log, { ...owner, pid: 102 }, processes), [suspect], 'Without client records for the owning daemon, open apps that use phones are possible causes.');
+assert.deepEqual(findMacCameraClients(log, { ...owner, locationId: 9999 }, processes), [suspect], 'A registered client that cannot be matched to this phone is only a possible cause.');
 assert.deepEqual(findMacCameraClients(log, owner, new Map()), [], 'Quit clients must not be blamed from old logs.');
 assert.deepEqual(findMacCameraClients(log, owner, new Map([[201, '/usr/bin/unrelated']])), [], 'A reused PID is not the old client.');
-assert.deepEqual(findMacCameraClients(log + '\nptpcamerad[101:a] New Device: LOC:5678', owner, processes), [], 'Do not attribute an ambiguous multi-camera log.');
+assert.deepEqual(findMacCameraClients(log + '\nptpcamerad[101:a] New Device: LOC:5678', owner, processes), [suspect], 'An ambiguous multi-camera log only yields possible causes.');
 const earlierPort = log.replace('LOC:1234', 'LOC:5678');
 assert.deepEqual(findMacCameraClients(earlierPort + '\nptpcamerad[101:a] New Device: LOC:1234\nptpcamerad[101:a] requestStart | Process: com.google.drivefs, Request Order Ascending: NO', owner, processes), [client], 'A phone moved from another USB port is attributed from its latest attachment.');
-assert.deepEqual(findMacCameraClients(earlierPort + '\nptpcamerad[101:a] New Device: LOC:1234', owner, processes), [], 'A request from before the latest attachment cannot name the client.');
+assert.deepEqual(findMacCameraClients(earlierPort + '\nptpcamerad[101:a] New Device: LOC:1234', owner, processes), [suspect], 'A request from before the latest attachment cannot verify the client.');
+const unlisted = { pid: 202, bundleId: 'com.example.sync', appName: 'Camera Sync', bundlePath: '/Applications/Camera Sync.app', verified: false };
+assert.deepEqual(findMacCameraClients(log + '\nptpcamerad[101:a] PTPCameraDevice | + 202-com.example.sync:[00002]', { ...owner, locationId: 9999 }, new Map([...processes, [202, '/Applications/Camera Sync.app/Contents/MacOS/Camera Sync']])), [suspect, unlisted], 'Every registered app is a possible cause, named from its bundle.');
+assert.deepEqual(findMacCameraClients('', owner, new Map([
+  [300, '/System/Applications/Preview.app/Contents/MacOS/Preview'],
+  [301, '/System/Applications/Notes.app/Contents/MacOS/Notes'],
+  [5, '/System/Applications/Preview.app/Contents/MacOS/Preview']
+])), [{ pid: 5, bundleId: 'com.apple.Preview', appName: 'Preview', bundlePath: '/System/Applications/Preview.app', verified: false }], 'Without a log, only open camera-import apps are suspected, once each.');
 assert.equal(findMacMtpCameraOwner(sample.replace('"USB Serial Number" = "SYNTHETIC-MTP-0001"', ''), {
   vendorId: 1256, productId: 26720, serial: 'SYNTHETIC-MTP-0001'
 }), null, 'Do not release an interface with no matching serial.');
@@ -116,6 +124,7 @@ for (let i = 0; i < 50; i++) conflicts.observe('phone-A', { owner, clients: [cli
 assert.equal(quitCalls, 0, 'Observing a busy phone never closes any process.');
 const offered = conflicts.get('phone-A');
 assert.equal(offered.apps[0].id, 'offer-1', 'Polling keeps the displayed choice stable.');
+assert.equal(offered.apps[0].verified, true);
 assert.match(offered.apps[0].quitImpact, /pauses Google Drive syncing/);
 assert.equal(JSON.stringify(offered).includes('201'), false, 'The renderer gets an opaque offer, not a PID.');
 const request = { connectionId: 'phone-A', appId: offered.apps[0].id };

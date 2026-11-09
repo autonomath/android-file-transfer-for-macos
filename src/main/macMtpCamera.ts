@@ -68,6 +68,8 @@ export interface MacCameraClient {
   bundleId: string;
   appName: string;
   bundlePath: string;
+  // False for a possible cause that could not be matched to this phone.
+  verified: boolean;
 }
 
 const cameraClientNames: Record<string, string> = {
@@ -84,36 +86,52 @@ export function cameraProcessAgeSeconds(elapsed: string): number | null {
   return Number(match[1] || 0) * 86400 + Number(match[2] || 0) * 3600 + Number(match[3]) * 60 + Number(match[4]);
 }
 
-// Attribution is conservative: only the currently owning daemon, records since
-// the phone's latest attachment at its USB location (no other device after it),
-// and a still-running client with a matching executable. The phone may have used
-// other ports earlier in the daemon's life; those records cannot name a client.
+function appBundle(executable: string | undefined): { appName: string; bundlePath: string } | null {
+  const match = executable?.match(/^(.*?\/([^/]+)\.app)\/Contents\/MacOS\//);
+  return match ? { bundlePath: match[1], appName: match[2] } : null;
+}
+
+// A client is verified only from the currently owning daemon, records since the
+// phone's latest attachment at its USB location (no other device after it), and a
+// still-running client with a matching executable. The phone may have used other
+// ports earlier in the daemon's life; those records cannot verify a client.
+// Otherwise the daemon's other live clients are possible causes, and with no client
+// records at all (for example, rotated out of a long-lived daemon's log), open apps
+// known to use phones are.
 export function findMacCameraClients(
   log: string,
   owner: MacMtpCameraOwner,
   processes: Map<number, string>
 ): MacCameraClient[] {
-  if (owner.locationId === undefined) return [];
   const lines = log.split('\n').filter((line) => line.includes(`ptpcamerad[${owner.pid}:`));
   const devices = lines.map((line) => line.match(/New Device: LOC:(\d+)/)?.[1]);
   const attached = devices.lastIndexOf(String(owner.locationId));
-  if (attached < 0 || devices.slice(attached + 1).some(Boolean)) return [];
-  const sinceAttached = lines.slice(attached);
+  const sinceAttached = attached < 0 || devices.slice(attached + 1).some(Boolean) ? [] : lines.slice(attached);
   const clients = new Map<number, MacCameraClient>();
+  let sawClientRecords = false;
   for (const line of lines) {
     const match = line.match(/PTPCameraDevice\s*\|\s*([+-])\s*(\d+)-([\w.-]+):/);
     if (!match) continue;
+    sawClientRecords = true;
     const pid = Number(match[2]);
     if (match[1] === '-') { clients.delete(pid); continue; }
     const bundleId = match[3];
-    const appName = cameraClientNames[bundleId];
-    const executable = processes.get(pid);
-    if (!appName || !executable?.includes(`/${appName}.app/Contents/MacOS/`)) continue;
-    if (!sinceAttached.some((entry) => entry.includes(`requestStart | Process: ${bundleId},`))) continue;
-    const bundlePath = executable.slice(0, executable.indexOf('.app/Contents/MacOS/') + 4);
-    clients.set(pid, { pid, bundleId, appName, bundlePath });
+    const bundle = appBundle(processes.get(pid));
+    const appName = cameraClientNames[bundleId] ?? bundle?.appName;
+    if (!bundle || bundle.appName !== appName) continue;
+    const verified = sinceAttached.some((entry) => entry.includes(`requestStart | Process: ${bundleId},`));
+    clients.set(pid, { pid, bundleId, appName, bundlePath: bundle.bundlePath, verified });
   }
-  return [...clients.values()];
+  const registered = [...clients.values()];
+  if (registered.some((client) => client.verified)) return registered.filter((client) => client.verified);
+  if (sawClientRecords) return registered;
+  const open = new Map<string, MacCameraClient>();
+  for (const [pid, executable] of [...processes].sort(([left], [right]) => left - right)) {
+    const bundle = appBundle(executable);
+    const bundleId = Object.keys(cameraClientNames).find((id) => cameraClientNames[id] === bundle?.appName);
+    if (bundle && bundleId && !open.has(bundleId)) open.set(bundleId, { pid, bundleId, ...bundle, verified: false });
+  }
+  return [...open.values()];
 }
 
 export interface MacCameraConflictSnapshot {
@@ -158,6 +176,7 @@ export class MacCameraConflicts {
       apps: current.clients.map((client) => ({
         id: client.id,
         name: client.appName,
+        verified: client.verified,
         quitImpact: client.bundleId === 'com.google.drivefs'
           ? 'Quitting pauses Google Drive syncing and may interrupt access to cloud-only files. Wait for any current uploads or saves to finish.'
           : `Quitting ${client.appName} may interrupt imports or other work. It can ask you to save changes or decline the request.`

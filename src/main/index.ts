@@ -465,7 +465,7 @@ function currentUsbConflict() {
 }
 
 function currentMacCameraClientApp(): string | undefined {
-  return currentUsbConflict()?.apps.map((entry) => entry.name).join(', ') || undefined;
+  return currentUsbConflict()?.apps.filter((entry) => entry.verified).map((entry) => entry.name).join(', ') || undefined;
 }
 
 async function readMacCameraClients(owner: MacMtpCameraOwner) {

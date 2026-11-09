@@ -72,6 +72,8 @@ export interface DeviceStatus {
 export interface UsbConflictApp {
   id: string;
   name: string;
+  // False when the app is only a possible cause.
+  verified: boolean;
   quitImpact: string;
 }
 

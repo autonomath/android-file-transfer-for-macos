@@ -41,11 +41,16 @@ export function UsbConflictPanel({ phoneName, conflict, requestQuit }: {
       </button>
       {conflict?.apps.length ? (
         <div className="usb-conflict-apps">
+          {conflict.apps.some((client) => !client.verified) ? (
+            <p className="usb-conflict-unknown">
+              We couldn’t confirm which app has it. These open apps can use phones, so one of them is the likely cause.
+            </p>
+          ) : null}
           {conflict.apps.map((client) => (
             <section className="usb-conflict-app" key={client.id} aria-label={client.name}>
               <div>
                 <h2>{client.name}</h2>
-                <p className="usb-conflict-evidence">Active camera-import client</p>
+                <p className="usb-conflict-evidence">{client.verified ? 'Active camera-import client' : 'Possible cause'}</p>
                 <p className="usb-conflict-impact" id={`impact-${client.id}`}>{client.quitImpact}</p>
               </div>
               <button
@@ -64,8 +69,8 @@ export function UsbConflictPanel({ phoneName, conflict, requestQuit }: {
         </div>
       ) : (
         <p className="usb-conflict-unknown">
-          We couldn’t verify which app is using the connection. If you’re ready, quit a camera-import
-          app such as Google Drive, Preview, or Photos from its own menu—or leave this window open to wait.
+          We couldn’t tell which app is using the connection. If you’re ready, quit any photo, backup, or
+          Android transfer app from its own menu—or leave this window open to wait.
         </p>
       )}
       <p className="usb-conflict-feedback" role="status" aria-live="polite">{feedback || 'Checking automatically.'}</p>

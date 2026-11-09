@@ -173,5 +173,5 @@ npm run mtp:smoke -- --timeout-ms=300000 --min-size=10000000
 - A verified Google Drive client must show the sync and cloud-only-file impact before Request Google Drive to quit. Other clients must explain possible imports and unsaved work.
 - Click Request Quit in a controlled fixture. The app should receive its normal macOS Quit request and can show a save prompt or decline. The transfer app must never escalate to force-quit, and must report delivery rather than claim the other app has exited.
 - Change the USB attachment, camera-service PID, or client process before clicking an old Quit offer. Nothing should be closed.
-- An unidentified owner offers waiting and manual guidance without a guessed Quit target.
+- An unidentified owner lists open camera-import apps as possible causes, each labeled **Possible cause** with the same normal Quit request, and never names them as the confirmed owner in the status line.
 - Verify the busy message stays stable during polling and normal file access resumes when the connection is free.
