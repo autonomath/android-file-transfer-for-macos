@@ -5765,14 +5765,9 @@ export function App(): JSX.Element {
                       <FileIcon row={row} />
                     </span>
                     <span className="file-tile-name">{row.name}</span>
-                    <span className="file-tile-meta">
-                      {row.kind === 'folder'
-                        ? 'Folder'
-                        : row.kind === 'storage'
-                          ? formatStorageTotal(row.storage)
-                          : `${formatBytes(row.size)} · ${row.type}`}
-                    </span>
-                    <span className="file-tile-date">{formatDate(row.modified)}</span>
+                    {row.kind === 'storage' && (
+                      <span className="file-tile-meta">{formatStorageTotal(row.storage)}</span>
+                    )}
                   </div>
                 ))}
               </div>
@@ -5827,7 +5822,7 @@ export function App(): JSX.Element {
                         </div>
                       </td>
                       <td>{formatBrowserRowSize(row)}</td>
-                      <td>{formatDate(row.modified)}</td>
+                      <td>{row.kind === 'file' ? formatDate(row.modified) : ''}</td>
                       <td>{row.type}</td>
                     </tr>
                   ))}
@@ -6131,7 +6126,7 @@ export function App(): JSX.Element {
                     >
                       <FileIcon row={browserRowForLocalEntry(entry)} />
                       <span className="local-name">{entry.name}</span>
-                      <span className="local-modified">{formatDate(entry.modified)}</span>
+                      <span className="local-modified">{entry.kind === 'folder' ? '' : formatDate(entry.modified)}</span>
                       <span className="local-kind">
                         {entry.kind === 'folder' ? 'Folder' : entry.type || extensionFor(entry.name)}
                       </span>
@@ -6159,12 +6154,6 @@ export function App(): JSX.Element {
                         <FileIcon row={browserRowForLocalEntry(entry)} />
                       </span>
                       <span className="file-tile-name">{entry.name}</span>
-                      <span className="file-tile-meta">
-                        {entry.kind === 'folder'
-                          ? 'Folder'
-                          : `${formatBytes(entry.size)} · ${entry.type || extensionFor(entry.name)}`}
-                      </span>
-                      <span className="file-tile-date">{formatDate(entry.modified)}</span>
                     </button>
                   ))}
                 {!localLoading && !localEntries.length && (
