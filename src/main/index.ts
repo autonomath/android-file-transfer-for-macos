@@ -1325,7 +1325,26 @@ function pumpSessionQueue(): void {
   sessionProcess.stdin.write(command.line);
 }
 
+// Two callers must never start two helpers for one phone: both would open its USB interface at once,
+// which left the phone unresponsive until its USB mode was toggled. Later callers wait, then recheck.
+let mtpSessionOpening: Promise<void> | null = null;
+
 async function ensureMtpSession(deviceIndex: number, expectedConnectionId?: string): Promise<void> {
+  while (mtpSessionOpening) {
+    await mtpSessionOpening.catch(() => undefined);
+  }
+  const opening = openMtpSession(deviceIndex, expectedConnectionId);
+  mtpSessionOpening = opening;
+  try {
+    await opening;
+  } finally {
+    if (mtpSessionOpening === opening) {
+      mtpSessionOpening = null;
+    }
+  }
+}
+
+async function openMtpSession(deviceIndex: number, expectedConnectionId?: string): Promise<void> {
   const generation = connectionAttemptGeneration;
   await waitForMtpSessionTeardown();
   const helperPath = await ensureBridge();

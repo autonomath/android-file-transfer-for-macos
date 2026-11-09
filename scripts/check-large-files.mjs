@@ -231,6 +231,11 @@ assert.match(
   'The phone-to-Mac button must count remembered Large files rows as transferable.'
 );
 const lookupBody = app.slice(app.indexOf('async function findRememberedRows'), app.indexOf('return foundRows;'));
+assert.match(
+  app,
+  /async function copyRowsToMac[\s\S]*?\): Promise<void> \{[\s\S]*?largeFilesScan\.current\?\.stop\(\);[\s\S]*?const rememberedRows/,
+  'Starting a Copy or Move must stop the large-file scan before looking files up.'
+);
 assert.ok(lookupBody.length > 0, 'findRememberedRows must exist.');
 assert.ok(
   !lookupBody.includes('cancelFolderListing'),

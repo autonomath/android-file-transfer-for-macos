@@ -1133,13 +1133,18 @@ function browserRowForLargeFile(entry: LargeFileEntry, deviceConnectionId: strin
   };
 }
 
+interface LargeFilesScanControl {
+  rescan: () => void;
+  stop: () => void;
+}
+
 function LargeFilesBar({
   open,
   device,
   entries,
   showHidden,
   transfersActive,
-  rescanRequest,
+  control,
   onEntries
 }: {
   open: boolean;
@@ -1147,8 +1152,8 @@ function LargeFilesBar({
   entries: LargeFileEntry[];
   showHidden: boolean;
   transfersActive: boolean;
-  // Bumped by Cmd+R or the toolbar Refresh button while this view is open.
-  rescanRequest: number;
+  // Lets Refresh rescan, and Copy or Move stop the scan so the phone works on the transfer instead.
+  control: { current: LargeFilesScanControl | null };
   // remember is true once a scan ends, so memory is written once per scan.
   onEntries: (entries: LargeFileEntry[], remember: boolean) => void;
 }): JSX.Element {
@@ -1158,7 +1163,6 @@ function LargeFilesBar({
   const [outcome, setOutcome] = useState<LargeFileScanResult | null>(null);
   const scanRun = useRef(0);
   const stopRequested = useRef(false);
-  const seenRescanRequest = useRef(rescanRequest);
 
   async function runScan(nextDepth: LargeFileScanDepth): Promise<void> {
     const run = scanRun.current + 1;
@@ -1209,15 +1213,7 @@ function LargeFilesBar({
     }
   }, [open]);
 
-  useEffect(() => {
-    if (rescanRequest === seenRescanRequest.current) {
-      return;
-    }
-    seenRescanRequest.current = rescanRequest;
-    if (open) {
-      void runScan(depth);
-    }
-  }, [rescanRequest]);
+  control.current = { rescan: () => void runScan(depth), stop: stopScan };
 
   // A phone that goes away must not get another folder request, which would reopen its session.
   useEffect(
@@ -1369,7 +1365,7 @@ export function App(): JSX.Element {
   const [appUpdate, setAppUpdate] = useState<AppUpdateCheckResult | null>(null);
   const [updateCheckBusy, setUpdateCheckBusy] = useState(false);
   const [largeFiles, setLargeFiles] = useState<LargeFileEntry[]>([]);
-  const [largeFilesRescanRequest, setLargeFilesRescanRequest] = useState(0);
+  const largeFilesScan = useRef<LargeFilesScanControl | null>(null);
   const workspaceRef = useRef<HTMLElement>(null);
   const queuePaneRef = useRef<HTMLElement>(null);
   const phoneBrowserRef = useRef<HTMLDivElement>(null);
@@ -2819,7 +2815,7 @@ export function App(): JSX.Element {
 
   function refreshPhonePane(): void {
     if (largeFilesOpen) {
-      setLargeFilesRescanRequest((request) => request + 1);
+      largeFilesScan.current?.rescan();
     } else if (location.storageId === null) {
       void handleManualRefresh();
     } else {
@@ -4420,6 +4416,9 @@ export function App(): JSX.Element {
     sourceDeviceConnectionId = device?.connectionId,
     operation: TransferOperation = 'copy'
   ): Promise<void> {
+    // A transfer the user asked for comes first: no more scan listings between its files.
+    // The folder being listed now still finishes; stopping a listing midway leaves the phone unresponsive.
+    largeFilesScan.current?.stop();
     const rememberedRows = fileRows.filter((row) => row.largeFile && !row.object);
     if (rememberedRows.length) {
       const foundRows = await findRememberedRows(rememberedRows);
@@ -4634,7 +4633,7 @@ export function App(): JSX.Element {
     setTransferNotice({
       phase: 'queued',
       // Never cancel a running listing here: killing the session mid-listing leaves the phone unresponsive.
-      message: `Finding ${pluralize(rememberedRows.length, 'file')} on the phone. This starts after the folder being listed now.`
+      message: `Finding ${pluralize(rememberedRows.length, 'file')} on the phone. The scan is stopped; this starts once the phone finishes the folder it is listing.`
     });
     let result: Awaited<ReturnType<typeof findRememberedLargeFiles>>;
     try {
@@ -6129,7 +6128,7 @@ export function App(): JSX.Element {
               entries={largeFiles}
               showHidden={phoneShowHiddenFiles}
               transfersActive={queueSummary.cancellable > 0}
-              rescanRequest={largeFilesRescanRequest}
+                control={largeFilesScan}
               onEntries={updateLargeFiles}
             />
           )}

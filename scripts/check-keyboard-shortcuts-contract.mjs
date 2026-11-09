@@ -17,7 +17,7 @@ assert.match(app, /key === 'f'[\s\S]*searchInputRef\.current\?\.focus\(\)/, 'Cmd
 assert.match(app, /key === 'r'\) \{\s*event\.preventDefault\(\);\s*refreshActivePane\(\)/, 'Cmd/Ctrl+R must refresh the active pane.');
 assert.match(
   app,
-  /function refreshPhonePane\(\): void \{\s*if \(largeFilesOpen\) \{\s*setLargeFilesRescanRequest/,
+  /function refreshPhonePane\(\): void \{\s*if \(largeFilesOpen\) \{\s*largeFilesScan\.current\?\.rescan\(\)/,
   'Refreshing the Large files view must rerun its scan, not recheck the phone connection.'
 );
 assert.match(app, /key === '1'[\s\S]*focusPhonePane\(\)/, 'Cmd/Ctrl+1 must focus the phone pane.');
