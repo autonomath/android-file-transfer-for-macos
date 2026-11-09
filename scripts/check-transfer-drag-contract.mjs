@@ -49,10 +49,10 @@ assert.match(
   /NSFilePromiseProvider/,
   'The native bridge must advertise real macOS file promises.'
 );
-assert.match(
+assert.doesNotMatch(
   native,
   /coordinateWritingItemAtURL/,
-  'Promise fulfillment must use NSFileCoordinator.'
+  'AppKit already coordinates promise writes; a nested NSFileCoordinator deadlocks every drop.'
 );
 assert.match(
   native,

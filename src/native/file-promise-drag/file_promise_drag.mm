@@ -225,24 +225,11 @@ class BridgeState {
   std::string destinationPath = url.path.UTF8String ?: "";
   auto pending = _state->BeginWrite(promiseId);
 
-  __block NSError* coordinationError = nil;
-  NSFileCoordinator* coordinator = [[NSFileCoordinator alloc] initWithFilePresenter:nil];
-  [coordinator coordinateWritingItemAtURL:url
-                                  options:0
-                                    error:&coordinationError
-                               byAccessor:^(NSURL* coordinatedURL) {
-    _state->Emit({
-        .type = "write",
-        .promiseId = promiseId,
-        .path = coordinatedURL.path.UTF8String ?: destinationPath
-    });
-    dispatch_semaphore_wait(pending->semaphore, DISPATCH_TIME_FOREVER);
-  }];
+  // AppKit already holds a coordinated write on this URL while it calls us.
+  // A second NSFileCoordinator here waits on that claim forever, so no file arrives.
+  _state->Emit({.type = "write", .promiseId = promiseId, .path = destinationPath});
+  dispatch_semaphore_wait(pending->semaphore, DISPATCH_TIME_FOREVER);
 
-  if (coordinationError) {
-    completionHandler(coordinationError);
-    return;
-  }
   if (!pending->error.empty()) {
     NSString* description = [NSString stringWithUTF8String:pending->error.c_str()];
     NSError* error = [NSError errorWithDomain:@"io.github.autonomath.androidfiletransfer.file-promise"
