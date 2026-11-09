@@ -90,7 +90,7 @@ For an authorized Pixel 9 test device, identify it locally with `adb devices` an
 - Drag a large phone file to a destination volume with too little space; confirm the promise fails without a visible partial file and tells the user to free space and drag again.
 - Drag a phone file into the app's Mac pane and confirm it copies directly into the currently displayed Mac folder.
 - Select a small phone folder and click Copy to Mac; confirm the queue contains the files inside the folder under a matching Mac folder.
-- While that folder copy is being planned, confirm the queue pane shows Preparing folder copy with an indeterminate progress bar and live file/folder counts before normal transfer jobs appear.
+- While that folder copy is being planned, confirm the transfer status strip under the phone file list shows Preparing folder copy with an indeterminate progress bar and live file/folder counts before normal transfer jobs appear.
 - During folder copy preparation, click Stop; confirm the Preparing card disappears, the app says Nothing was copied, and no transfer jobs are queued.
 - After a copied phone folder finishes, reveal it in Finder and confirm the folder modified date matches the phone row after child copies finish.
 - Copy or drag an empty phone folder to the Mac and confirm an empty Mac folder is created instead of a no-files error.
@@ -113,6 +113,7 @@ For an authorized Pixel 9 test device, identify it locally with `adb devices` an
 - Reveal in Finder opens the copied file location.
 - Queue two or more copies, click Cancel All, and confirm queued/active jobs become canceled without opening another MTP session.
 - Click Clear Finished after completed/canceled/failed jobs exist; finished items are removed while active or queued jobs remain.
+- The transfer status strip under the phone file list stays one summary line plus a progress bar; clicking the summary expands the job list upward and clicking again collapses it.
 - Start a large copy and cancel it; the queue shows canceled and the log shows the single MTP worker was stopped.
 - Quit the app after a normal phone-file session is open; confirm the log says `sent graceful quit to MTP session` instead of immediately killing the helper with `SIGTERM`.
 - Retry the canceled or failed copy; it queues again.

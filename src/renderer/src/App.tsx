@@ -6,8 +6,10 @@ import {
   ArrowUp,
   CheckCircle2,
   CircleMinus,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Circle,
   ClipboardList,
   Download,
@@ -1342,6 +1344,7 @@ export function App(): JSX.Element {
   const [isDraggingTransfer, setIsDraggingTransfer] = useState(false);
   const [isDraggingMacFiles, setIsDraggingMacFiles] = useState(false);
   const [transferNotice, setTransferNotice] = useState<TransferNotice | null>(null);
+  const [transferLogOpen, setTransferLogOpen] = useState(false);
   const [phoneDownloadPlanning, setPhoneDownloadPlanning] = useState<PhoneDownloadPlanningProgress | null>(null);
   const [transferClipboard, setTransferClipboard] = useState<TransferClipboard | null>(null);
   const [newFolderDialogOpen, setNewFolderDialogOpen] = useState(false);
@@ -1561,6 +1564,17 @@ export function App(): JSX.Element {
       percent
     };
   }, [visibleQueueJobs]);
+  const attentionJob =
+    visibleQueueJobs.find((job) => job.status === 'active') ?? visibleQueueJobs.find((job) => job.status === 'failed');
+  const queueStatusDetail = [
+    `${queueSummary.completed} of ${queueSummary.total} done`,
+    queueSummary.failed ? `${queueSummary.failed} failed` : '',
+    queueSummary.canceled ? `${queueSummary.canceled} canceled` : '',
+    attentionJob?.name,
+    attentionJob?.status === 'failed' ? attentionJob.error : ''
+  ]
+    .filter(Boolean)
+    .join(' · ');
   const reportedPhase = reportedConnectionPhase(status, inventory);
   // The session is open and the phone has simply not shared storage yet. That
   // wait is rechecked in the background, and the recheck must not rewrite the
@@ -6482,6 +6496,224 @@ export function App(): JSX.Element {
               </table>
             )}
           </div>
+          <div className={`transfer-status ${transferLogOpen ? 'open' : ''}`}>
+          {phoneDownloadPlanning && (
+            <div className="transfer-planning-notice" role="status" aria-live="polite">
+              <div className="transfer-planning-copy">
+                <Loader2 size={14} className="spin" />
+                <div>
+                  <strong>Preparing folder copy</strong>
+                  <span>
+                    {phoneDownloadPlanning.files} {phoneDownloadPlanning.files === 1 ? 'file' : 'files'} found in{' '}
+                    {phoneDownloadPlanning.folders} {phoneDownloadPlanning.folders === 1 ? 'folder' : 'folders'}.
+                    Keep the phone unlocked.
+                  </span>
+                  <small>Listing {phoneDownloadPlanning.currentName}</small>
+                </div>
+                <button
+                  type="button"
+                  className="transfer-planning-stop-button"
+                  onClick={() => void stopPhoneDownloadPlanning()}
+                >
+                  <X size={12} />
+                  <span>Stop</span>
+                </button>
+              </div>
+              <div
+                className="transfer-planning-track"
+                role="progressbar"
+                aria-label="Preparing folder copy"
+              >
+                <div className="transfer-planning-fill" />
+              </div>
+            </div>
+          )}
+
+          {transferNotice && (
+            <div className={`transfer-notice ${transferNotice.phase}`} role="status" aria-live="polite">
+              {transferNotice.phase === 'failed' ? <AlertTriangle size={14} /> : <Download size={14} />}
+              <span title={transferNotice.message}>{transferNotice.message}</span>
+            </div>
+          )}
+
+          {visibleQueueJobs.length > 0 && (
+            <div className={`queue-summary ${queueSummary.failed ? 'failed' : ''}`} role="status" aria-live="polite">
+              <button
+                type="button"
+                className="queue-summary-title"
+                aria-expanded={transferLogOpen}
+                title={transferLogOpen ? 'Hide transfer list' : `Show all ${queueSummary.total} transfers. ${queueStatusDetail}`}
+                onClick={() => setTransferLogOpen((open) => !open)}
+              >
+                {transferLogOpen ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+                <strong>
+                  {queueSummary.activeTransfers
+                    ? 'Transferring'
+                    : queueSummary.queuedTransfers
+                      ? 'Queued'
+                      : queueSummary.failed
+                        ? 'Needs attention'
+                        : queueSummary.canceled && !queueSummary.completed
+                          ? 'Canceled'
+                          : queueSummary.completed
+                            ? 'Completed'
+                            : 'Transfer queue'}
+                </strong>
+                <span>{queueStatusDetail}</span>
+              </button>
+              <div className="queue-summary-meta">
+                <span>
+                  {formatBytes(queueSummary.transferredBytes)} copied of {formatBytes(queueSummary.totalBytes)}
+                </span>
+                {queueSummary.activeTransfers > 0 && (
+                  <>
+                    <span>{formatBytes(queueSummary.speedBytesPerSecond)}/s</span>
+                    <span>ETA {formatDuration(queueSummary.etaSeconds)}</span>
+                  </>
+                )}
+                <span className="queue-summary-percent">{queueSummary.percent}%</span>
+              </div>
+              <div className="queue-summary-actions">
+                {queueSummary.finished > 0 && (
+                  <button className="text-button" onClick={clearFinishedTransfers}>
+                    <CheckCircle2 size={13} />
+                    <span>Clear Finished</span>
+                  </button>
+                )}
+                {queueSummary.cancellable > 0 && (
+                  <button className="text-button danger-button" onClick={() => void cancelAllTransfers()}>
+                    <X size={13} />
+                    <span>Cancel All</span>
+                  </button>
+                )}
+              </div>
+              {queueSummary.cancellable > 0 && (
+                <div
+                  className="progress-track queue-total-progress"
+                  role="progressbar"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={queueSummary.percent}
+                  aria-label="Overall transfer progress"
+                >
+                  <div className="progress-fill" style={{ width: `${queueSummary.percent}%` }} />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* The expanded list sits above the summary line (CSS order), so the strip grows up into the file table. */}
+          {(transferLogOpen || !visibleQueueJobs.length) && (
+          <div className="queue-list">
+            {visibleQueueJobs.map((job) => (
+              <div
+                className={`queue-item ${job.status} ${job.sourceRemovalStatus === 'kept' ? 'source-kept' : ''}`}
+                key={job.id}
+              >
+                <div className="queue-row">
+                  <FileIcon
+                    row={{
+                      key: job.id,
+                      kind: 'file',
+                      name: job.name,
+                      size: job.size,
+                      modified: 0,
+                      type: extensionFor(job.name)
+                    }}
+                  />
+                  <div className="queue-main">
+                    <strong>{job.name}</strong>
+                    <span>
+                      {job.operation === 'move' && job.sourceRemovalStatus === 'removed'
+                        ? 'moved'
+                        : job.operation === 'move' && job.sourceRemovalStatus === 'kept'
+                          ? 'copied; source kept'
+                          : job.status}{' '}
+                      ·{' '}
+                      {job.direction === 'upload'
+                        ? 'to phone'
+                        : 'to Mac'}{' '}
+                      ·{' '}
+                      {formatBytes(job.bytesTransferred)} / {formatBytes(job.totalBytes || job.size)}
+                      {job.status === 'active'
+                        ? ` · ${formatBytes(job.speedBytesPerSecond)}/s · ETA ${formatDuration(job.etaSeconds)}`
+                        : ''}
+                    </span>
+                    {job.direction === 'download' && job.renamedDestination && (
+                      <span className="queue-rename-note">
+                        Saved as {fileNameFromPath(job.destinationPath)} so nothing is overwritten.
+                      </span>
+                    )}
+                    {job.direction === 'upload' && job.collisionAction === 'keep-both' && job.uploadName && (
+                      <span className="queue-rename-note">
+                        Saving as {job.uploadName} so nothing is overwritten.
+                      </span>
+                    )}
+                    {job.direction === 'upload' && job.collisionAction === 'replace' && (
+                      <span className="queue-rename-note">
+                        The existing phone file stays in place until this copy is verified.
+                      </span>
+                    )}
+                  </div>
+                  <div className="job-actions">
+                  {(job.status === 'queued' || job.status === 'active') && (
+                    <button className="icon-button" title="Cancel" onClick={() => void window.mtp.cancelTransfer(job.id)}>
+                      <X size={14} />
+                    </button>
+                  )}
+                  {!job.promiseId &&
+                    !(job.direction === 'upload' && job.collisionAction === 'replace') &&
+                    (job.status === 'failed' || job.status === 'canceled') && (
+                    <button
+                      className="icon-button"
+                      title="Retry"
+                      onClick={() => void window.mtp.retryTransfer(job.id)}
+                    >
+                      <RotateCcw size={14} />
+                    </button>
+                  )}
+                  {job.status === 'completed' && job.direction === 'download' && (
+                    <button
+                      className="icon-button"
+                      title="Reveal in Finder"
+                      onClick={() => void window.mtp.revealInFinder(job.destinationPath)}
+                    >
+                      <ExternalLink size={14} />
+                    </button>
+                  )}
+                  </div>
+                </div>
+                {(job.status === 'active' || job.status === 'queued') && (
+                  <div className="progress-track">
+                    <div
+                      className="progress-fill"
+                      style={{
+                        width: `${Math.min(
+                          100,
+                          ((job.bytesTransferred || 0) / Math.max(job.totalBytes || job.size || 1, 1)) * 100
+                        )}%`
+                      }}
+                    />
+                  </div>
+                )}
+                {job.error && (
+                  <div className="job-error">
+                    {job.error}{job.promiseId ? ' Drag again.' : ''}
+                  </div>
+                )}
+                {job.status === 'completed' && job.resultMessage && (
+                  <div className={`job-result ${job.sourceRemovalStatus === 'kept' ? 'warning' : ''}`}>
+                    {job.resultMessage}
+                  </div>
+                )}
+              </div>
+            ))}
+            {!visibleQueueJobs.length && !transferNotice && !phoneDownloadPlanning && (
+              <div className="empty-note">Drag phone files directly to Finder, Desktop, another app, or this Mac folder.</div>
+            )}
+          </div>
+          )}
+          </div>
         </section>
 
         <button
@@ -6511,12 +6743,6 @@ export function App(): JSX.Element {
                     ? 'Loading'
                     : `${localEntries.length} ${localEntries.length === 1 ? 'item' : 'items'}`}
                 </span>
-              </div>
-              <div className="destination-actions">
-                <button className="destination-button" onClick={() => void chooseMacFolder()}>
-                  <Folder size={15} />
-                  <span title={localPath || destination}>{localPath || destination}</span>
-                </button>
               </div>
               {commonMacFolders.length > 0 && (
                 <div className="common-folder-shortcuts" aria-label="Common Mac folders">
@@ -6815,232 +7041,13 @@ export function App(): JSX.Element {
             </div>
           </div>
 
-          <div className="drop-zone">
-            <Download size={18} />
-            <span>
-              {isDraggingTransfer
-                ? `Drop here to copy into ${folderLabelForPath(localPath || destination)}`
-                : 'Drag phone files directly to Finder, Desktop, another app, or this Mac folder.'}
-            </span>
-          </div>
-
-          {phoneDownloadPlanning && (
-            <div className="transfer-planning-notice" role="status" aria-live="polite">
-              <div className="transfer-planning-copy">
-                <Loader2 size={14} className="spin" />
-                <div>
-                  <strong>Preparing folder copy</strong>
-                  <span>
-                    {phoneDownloadPlanning.files} {phoneDownloadPlanning.files === 1 ? 'file' : 'files'} found in{' '}
-                    {phoneDownloadPlanning.folders} {phoneDownloadPlanning.folders === 1 ? 'folder' : 'folders'}.
-                    Keep the phone unlocked.
-                  </span>
-                  <small>Listing {phoneDownloadPlanning.currentName}</small>
-                </div>
-                <button
-                  type="button"
-                  className="transfer-planning-stop-button"
-                  onClick={() => void stopPhoneDownloadPlanning()}
-                >
-                  <X size={12} />
-                  <span>Stop</span>
-                </button>
-              </div>
-              <div
-                className="transfer-planning-track"
-                role="progressbar"
-                aria-label="Preparing folder copy"
-              >
-                <div className="transfer-planning-fill" />
-              </div>
+          {isDraggingTransfer && (
+            <div className="drop-zone">
+              <Download size={18} />
+              <span>{`Drop here to copy into ${folderLabelForPath(localPath || destination)}`}</span>
             </div>
           )}
 
-          {transferNotice && (
-            <div className={`transfer-notice ${transferNotice.phase}`} role="status" aria-live="polite">
-              {transferNotice.phase === 'failed' ? <AlertTriangle size={14} /> : <Download size={14} />}
-              <span>{transferNotice.message}</span>
-            </div>
-          )}
-
-          {visibleQueueJobs.length > 0 && (
-            <div className="queue-summary" role="status" aria-live="polite">
-              <div className="queue-summary-top">
-                <div className="queue-summary-title">
-                  <strong>
-                    {queueSummary.activeTransfers
-                      ? 'Transferring'
-                      : queueSummary.queuedTransfers
-                        ? 'Queued'
-                        : queueSummary.failed
-                          ? 'Needs attention'
-                          : queueSummary.canceled && !queueSummary.completed
-                            ? 'Canceled'
-                            : queueSummary.completed
-                              ? 'Completed'
-                              : 'Transfer queue'}
-                  </strong>
-                  <span>
-                    {queueSummary.completed} done
-                    {' · '}
-                    {queueSummary.failed} failed · {queueSummary.canceled} canceled
-                  </span>
-                </div>
-                <span className="queue-summary-percent">{queueSummary.percent}%</span>
-              </div>
-              <div
-                className="progress-track queue-total-progress"
-                role="progressbar"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={queueSummary.percent}
-                aria-label="Overall transfer progress"
-              >
-                <div className="progress-fill" style={{ width: `${queueSummary.percent}%` }} />
-              </div>
-              <div className="queue-summary-meta">
-                <span>
-                  {formatBytes(queueSummary.transferredBytes)} copied of {formatBytes(queueSummary.totalBytes)}
-                </span>
-                <span>{formatBytes(queueSummary.speedBytesPerSecond)}/s</span>
-                <span>ETA {formatDuration(queueSummary.etaSeconds)}</span>
-              </div>
-              <div className="queue-summary-actions">
-                <button
-                  className="text-button"
-                  disabled={!queueSummary.finished}
-                  onClick={clearFinishedTransfers}
-                >
-                  <CheckCircle2 size={13} />
-                  <span>Clear Finished</span>
-                </button>
-                <button
-                  className="text-button danger-button"
-                  disabled={!queueSummary.cancellable}
-                  onClick={() => void cancelAllTransfers()}
-                >
-                  <X size={13} />
-                  <span>Cancel All</span>
-                </button>
-              </div>
-            </div>
-          )}
-
-          <div className={`queue-list ${visibleQueueJobs.length ? 'has-jobs' : 'empty'}`}>
-            {visibleQueueJobs.map((job) => (
-              <div
-                className={`queue-item ${job.status} ${job.sourceRemovalStatus === 'kept' ? 'source-kept' : ''}`}
-                key={job.id}
-              >
-                <div className="queue-row">
-                  <FileIcon
-                    row={{
-                      key: job.id,
-                      kind: 'file',
-                      name: job.name,
-                      size: job.size,
-                      modified: 0,
-                      type: extensionFor(job.name)
-                    }}
-                  />
-                  <div className="queue-main">
-                    <strong>{job.name}</strong>
-                    <span>
-                      {job.operation === 'move' && job.sourceRemovalStatus === 'removed'
-                        ? 'moved'
-                        : job.operation === 'move' && job.sourceRemovalStatus === 'kept'
-                          ? 'copied; source kept'
-                          : job.status}{' '}
-                      ·{' '}
-                      {job.direction === 'upload'
-                        ? 'to phone'
-                        : 'to Mac'}{' '}
-                      ·{' '}
-                      {formatBytes(job.bytesTransferred)} / {formatBytes(job.totalBytes || job.size)}
-                    </span>
-                    {job.direction === 'download' && job.renamedDestination && (
-                      <span className="queue-rename-note">
-                        Saved as {fileNameFromPath(job.destinationPath)} so nothing is overwritten.
-                      </span>
-                    )}
-                    {job.direction === 'upload' && job.collisionAction === 'keep-both' && job.uploadName && (
-                      <span className="queue-rename-note">
-                        Saving as {job.uploadName} so nothing is overwritten.
-                      </span>
-                    )}
-                    {job.direction === 'upload' && job.collisionAction === 'replace' && (
-                      <span className="queue-rename-note">
-                        The existing phone file stays in place until this copy is verified.
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div className="progress-track">
-                  <div
-                    className="progress-fill"
-                    style={{
-                      width: `${Math.min(
-                        100,
-                        ((job.bytesTransferred || 0) / Math.max(job.totalBytes || job.size || 1, 1)) * 100
-                      )}%`
-                    }}
-                  />
-                </div>
-                <div className="queue-meta">
-                  {job.status === 'completed' ? (
-                    <span>Finished</span>
-                  ) : job.status === 'failed' ? (
-                    <span>Failed</span>
-                  ) : job.status === 'canceled' ? (
-                    <span>Canceled</span>
-                  ) : (
-                    <>
-                      <span>{formatBytes(job.speedBytesPerSecond)}/s</span>
-                      <span>ETA {formatDuration(job.etaSeconds)}</span>
-                    </>
-                  )}
-                </div>
-                {job.error && (
-                  <div className="job-error">
-                    {job.error}{job.promiseId ? ' Drag again.' : ''}
-                  </div>
-                )}
-                {job.status === 'completed' && job.resultMessage && (
-                  <div className={`job-result ${job.sourceRemovalStatus === 'kept' ? 'warning' : ''}`}>
-                    {job.resultMessage}
-                  </div>
-                )}
-                <div className="job-actions">
-                  {(job.status === 'queued' || job.status === 'active') && (
-                    <button className="icon-button" title="Cancel" onClick={() => void window.mtp.cancelTransfer(job.id)}>
-                      <X size={14} />
-                    </button>
-                  )}
-                  {!job.promiseId &&
-                    !(job.direction === 'upload' && job.collisionAction === 'replace') &&
-                    (job.status === 'failed' || job.status === 'canceled') && (
-                    <button
-                      className="icon-button"
-                      title="Retry"
-                      onClick={() => void window.mtp.retryTransfer(job.id)}
-                    >
-                      <RotateCcw size={14} />
-                    </button>
-                  )}
-                  {job.status === 'completed' && job.direction === 'download' && (
-                    <button
-                      className="icon-button"
-                      title="Reveal in Finder"
-                      onClick={() => void window.mtp.revealInFinder(job.destinationPath)}
-                    >
-                      <ExternalLink size={14} />
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-            {!visibleQueueJobs.length && <div className="empty-note">Transfer queue is empty.</div>}
-          </div>
         </aside>
         </section>
       )}

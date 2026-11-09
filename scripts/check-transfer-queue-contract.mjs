@@ -33,7 +33,11 @@ assert.match(app, /const connectionStateClass =/, 'Top connection pill must deri
 assert.match(app, /queueSummary\.activeTransfers[\s\S]*'transfer-active'/, 'Top connection pill must show active transfers.');
 assert.match(app, /role="status"[\s\S]*aria-live="polite"/, 'Top connection pill must announce transfer-active state changes.');
 assert.match(app, /'Completed'/, 'Completed-only queues must be labeled as completed, not transferring.');
-assert.match(app, /<span>Finished<\/span>/, 'Completed queue items must stop showing stale speed and ETA metadata.');
+assert.match(
+  app,
+  /job\.status === 'active'\s*\? ` · \$\{formatBytes\(job\.speedBytesPerSecond\)\}\/s · ETA/,
+  'Only active queue items may show speed and ETA, so finished ones never show stale numbers.'
+);
 assert.doesNotMatch(app, /activePreparations|queuedPreparations|preparationOnly/, 'Removed drag-cache preparation must not remain in queue state.');
 assert.match(app, /transferredBytes/, 'Queue summary must track transferred bytes.');
 assert.match(app, /speedBytesPerSecond/, 'Queue summary must track aggregate transfer speed.');

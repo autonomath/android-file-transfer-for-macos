@@ -492,8 +492,7 @@ button {
 .diagnostics,
 .storage-list,
 .queue-header,
-.drop-zone,
-.queue-list {
+.drop-zone {
   margin-bottom: 14px;
 }
 
@@ -522,7 +521,6 @@ button {
 
 .device-title span,
 .storage-item span,
-.destination-button span,
 .queue-main strong,
 .queue-main span,
 .diagnostic-line code,
@@ -749,7 +747,6 @@ button {
 .icon-button,
 .text-button,
 .primary-button,
-.destination-button,
 .device-choice,
 .storage-item,
 .breadcrumbs button,
@@ -952,7 +949,7 @@ button {
 
 .browser-pane {
   display: grid;
-  grid-template-rows: 50px 31px auto auto minmax(0, 1fr);
+  grid-template-rows: 50px 31px auto auto minmax(0, 1fr) auto;
   min-width: 0;
   min-height: 0;
   background: var(--browser-bg);
@@ -1183,6 +1180,22 @@ button {
   grid-row: 5;
   min-height: 0;
   overflow: auto;
+}
+
+/* Transfer status under the phone list: one line collapsed, the job list expands upward. */
+.transfer-status {
+  grid-row: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 7px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--sidebar-bg);
+}
+
+.transfer-status .queue-list {
+  order: -1;
 }
 
 .folder-loading-banner {
@@ -1703,52 +1716,28 @@ button {
   white-space: nowrap;
 }
 
-.destination-button {
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
-  align-items: center;
-  width: 100%;
-  min-height: 34px;
-  gap: 8px;
-  padding: 8px 9px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: var(--button-bg);
-  color: #303630;
-  text-align: left;
-  font-weight: 750;
-}
-
-.destination-actions {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 8px;
-  align-items: center;
-}
-
 .common-folder-shortcuts {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(94px, 1fr));
-  gap: 6px;
-  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
 }
 
 .common-folder-shortcuts button {
-  display: grid;
-  grid-template-columns: 16px minmax(0, 1fr);
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   min-width: 0;
-  min-height: 28px;
-  padding: 5px 7px;
+  min-height: 24px;
+  padding: 2px 8px 2px 6px;
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: 999px;
   background: var(--button-bg);
   color: var(--ink);
   cursor: pointer;
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 750;
   text-align: left;
 }
 
@@ -1897,6 +1886,8 @@ button {
 }
 
 .local-browser {
+  /* Always the stretching last row of the Mac pane, whichever rows above are shown. */
+  grid-row: -2 / -1;
   min-height: 0;
   margin-top: 9px;
   overflow: auto;
@@ -2055,9 +2046,8 @@ button {
 
 .transfer-planning-notice {
   display: grid;
-  gap: 8px;
-  margin-bottom: 12px;
-  padding: 9px;
+  gap: 6px;
+  padding: 6px 9px;
   border: 1px solid rgb(36 93 122 / 0.24);
   border-radius: 7px;
   background: #edf6f9;
@@ -2069,13 +2059,14 @@ button {
   display: grid;
   grid-template-columns: 16px minmax(0, 1fr) auto;
   gap: 8px;
-  align-items: flex-start;
+  align-items: center;
 }
 
 .transfer-planning-copy div {
-  display: grid;
+  display: flex;
+  align-items: baseline;
   min-width: 0;
-  gap: 2px;
+  gap: 8px;
 }
 
 .transfer-planning-copy strong,
@@ -2134,8 +2125,7 @@ button {
   display: flex;
   align-items: flex-start;
   gap: 7px;
-  margin-bottom: 12px;
-  padding: 8px 9px;
+  padding: 6px 9px;
   border: 1px solid rgb(82 99 74 / 0.24);
   border-radius: 7px;
   background: #f2f7ef;
@@ -2158,6 +2148,10 @@ button {
 
 .transfer-notice span {
   min-width: 0;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .modal-backdrop {
@@ -2257,15 +2251,15 @@ button {
 
 .queue-summary {
   display: grid;
-  gap: 8px;
-  margin-bottom: 12px;
-  padding: 9px;
-  border: 1px solid rgb(36 93 122 / 0.2);
-  border-radius: 8px;
-  background: #f7fbfc;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 5px 12px;
 }
 
-.queue-summary-top,
+.queue-total-progress {
+  grid-column: 1 / -1;
+}
+
 .queue-summary-meta,
 .queue-summary-actions {
   display: flex;
@@ -2274,18 +2268,22 @@ button {
   min-width: 0;
 }
 
-.queue-summary-top,
-.queue-summary-meta {
-  justify-content: space-between;
-}
-
 .queue-summary-title {
-  display: grid;
+  display: flex;
+  align-items: center;
   min-width: 0;
-  gap: 2px;
+  gap: 6px;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .queue-summary-title strong {
+  flex: none;
   font-size: 12px;
 }
 
@@ -2293,6 +2291,7 @@ button {
 .queue-summary-meta {
   color: var(--muted);
   font-size: 11px;
+  white-space: nowrap;
 }
 
 .queue-summary-title span {
@@ -2302,6 +2301,11 @@ button {
   white-space: nowrap;
 }
 
+.queue-summary.failed .queue-summary-title,
+.queue-summary.failed .queue-summary-title span {
+  color: var(--red);
+}
+
 .queue-summary-percent {
   color: var(--blue);
   font-size: 12px;
@@ -2309,6 +2313,7 @@ button {
 }
 
 .queue-total-progress {
+  height: 4px;
   margin: 0;
 }
 
@@ -2326,24 +2331,16 @@ button {
 .queue-list {
   display: flex;
   flex-direction: column;
-  flex: 0 1 190px;
-  gap: 9px;
-  min-height: 88px;
+  gap: 6px;
+  max-height: min(320px, 40vh);
   overflow: auto;
 }
 
-.queue-list.empty {
-  flex: 0 0 auto;
-  min-height: 0;
-  overflow: visible;
-}
-
 .queue-item {
-  padding: 9px;
+  padding: 7px 9px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel-strong);
-  box-shadow: 0 6px 18px rgb(41 38 30 / 0.06);
 }
 
 .queue-item.active {
@@ -2356,7 +2353,7 @@ button {
 
 .queue-row {
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr);
+  grid-template-columns: 20px minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
 }
@@ -2371,8 +2368,7 @@ button {
   font-size: 12px;
 }
 
-.queue-main span,
-.queue-meta {
+.queue-main span {
   color: var(--muted);
   font-size: 11px;
 }
@@ -2396,10 +2392,8 @@ button {
   background: linear-gradient(90deg, var(--moss), var(--blue));
 }
 
-.queue-meta {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
+.queue-item .progress-track {
+  margin: 6px 0 0;
 }
 
 .job-error {
@@ -2428,14 +2422,17 @@ button {
 .job-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 6px;
-  margin-top: 8px;
+  gap: 4px;
 }
 
 .empty-note {
   padding: 9px 2px;
   color: var(--muted);
   font-size: 12px;
+}
+
+.transfer-status .empty-note {
+  padding: 2px;
 }
 
 .spin {
@@ -2487,7 +2484,6 @@ button {
 .app-shell[data-theme='dark'] .connection-pill,
 .app-shell[data-theme='dark'] .icon-button,
 .app-shell[data-theme='dark'] .text-button,
-.app-shell[data-theme='dark'] .destination-button,
 .app-shell[data-theme='dark'] .common-folder-shortcuts button,
 .app-shell[data-theme='dark'] .local-browser,
 .app-shell[data-theme='dark'] .folder-dialog,
@@ -2555,7 +2551,6 @@ button {
 }
 
 .app-shell[data-theme='dark'] .diagnostic-line code,
-.app-shell[data-theme='dark'] .destination-button,
 .app-shell[data-theme='dark'] .folder-name-field,
 .app-shell[data-theme='dark'] .help-steps li,
 .app-shell[data-theme='dark'] .connection-help h2,
@@ -2598,7 +2593,6 @@ button {
 .app-shell[data-theme='dark'] .recovery-message,
 .app-shell[data-theme='dark'] .transfer-notice.queued,
 .app-shell[data-theme='dark'] .transfer-planning-notice,
-.app-shell[data-theme='dark'] .queue-summary,
 .app-shell[data-theme='dark'] .queue-pane.working .drop-zone,
 .app-shell[data-theme='dark'] .queue-pane.dragging-files .drop-zone,
 .app-shell[data-theme='dark'] .folder-loading-banner {
