@@ -35,6 +35,12 @@ assert.match(app, /Use Copy to Phone, Cmd\+C then Cmd\+V, right-click, or drag f
 assert.match(app, /rows\.slice\(start,\s*end \+ 1\)\.map\(\(candidate\) => candidate\.key\)/, 'Phone range selection must use visible row order.');
 assert.match(app, /sortedLocalEntries\.slice\(start,\s*end \+ 1\)\.map\(\(candidate\) => candidate\.path\)/, 'Mac range selection must use visible local row order.');
 assert.match(app, /toggleRowSelection\(row,\s*event\.metaKey \|\| event\.ctrlKey,\s*event\.shiftKey\)/, 'Phone list/grid clicks must pass shiftKey.');
+assert.match(
+  app,
+  /className="row-check"[\s\S]*?event\.stopPropagation\(\);\s*toggleRowSelection\(row, true, event\.shiftKey\)/,
+  'A row tickbox must add or remove only its own row instead of replacing the selection.'
+);
+assert.match(app, /aria-label="Select all"/, 'The phone table header must have a select-all tickbox.');
 assert.match(app, /toggleLocalSelection\(entry,\s*event\.metaKey \|\| event\.ctrlKey,\s*event\.shiftKey\)/, 'Mac row clicks must pass shiftKey.');
 assert.match(readme, /Shift-click/, 'README must document Shift-click selection.');
 assert.match(readme, /selection summaries/, 'README must document selected-item summaries.');

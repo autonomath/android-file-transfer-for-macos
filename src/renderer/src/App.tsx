@@ -5,6 +5,7 @@ import {
   ArrowRight,
   ArrowUp,
   CheckCircle2,
+  CircleMinus,
   ChevronLeft,
   ChevronRight,
   Circle,
@@ -30,6 +31,7 @@ import {
   Pencil,
   RefreshCcw,
   RotateCcw,
+  ScanSearch,
   Search,
   Smartphone,
   Sun,
@@ -52,6 +54,16 @@ import {
 import { validatePhoneItemName } from '../../shared/phoneMutation';
 import { validateLocalItemName } from '../../shared/localMutation';
 import { nextKeepBothPhoneName } from '../../shared/transferCollision';
+import {
+  LARGE_FILE_MIN_BYTES,
+  parseRememberedLargeFiles,
+  scanForLargeFiles,
+  serializeRememberedLargeFiles,
+  type LargeFileEntry,
+  type LargeFileScanDepth,
+  type LargeFileScanResult,
+  type LargeFileScanUpdate
+} from '../../shared/largeFiles';
 import type {
   AppMenuCommand,
   AppUpdateCheckResult,
@@ -103,6 +115,7 @@ const MAC_SHOW_HIDDEN_STORAGE_KEY = 'androidFileTransferForMacOS.macShowHiddenFi
 const LEGACY_SHOW_HIDDEN_STORAGE_KEY = 'androidFileTransferForMacOS.showHiddenFiles';
 const MAC_PANE_WIDTH_STORAGE_KEY = 'androidFileTransferForMacOS.macPaneWidth';
 const UPDATE_LAST_CHECK_STORAGE_KEY = 'androidFileTransferForMacOS.lastUpdateCheckAt';
+const LARGE_FILES_STORAGE_PREFIX = 'androidFileTransferForMacOS.largeFiles.';
 const AUTO_UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const AUTO_UPDATE_START_DELAY_MS = 6000;
 const DEFAULT_MAC_PANE_WIDTH = 460;
@@ -141,6 +154,7 @@ interface BrowserLocation {
   storageId: number | null;
   folderId: number;
   crumbs: Array<{ label: string; folderId: number }>;
+  largeFiles?: boolean;
 }
 
 interface BrowserRow {
@@ -152,6 +166,7 @@ interface BrowserRow {
   type: string;
   storage?: MtpStorage;
   object?: MtpObject;
+  largeFile?: LargeFileEntry;
 }
 
 interface RefreshFeedback {
@@ -220,6 +235,8 @@ const rootLocation: BrowserLocation = {
   folderId: ROOT_PARENT_ID,
   crumbs: []
 };
+
+const largeFilesLocation: BrowserLocation = { ...rootLocation, largeFiles: true };
 
 function formatBytes(bytes: number): string {
   if (!bytes) {
@@ -1018,6 +1035,251 @@ function makeRows(
   }));
 }
 
+const LARGE_FILE_DEPTHS: Array<{ depth: LargeFileScanDepth; label: string; title: string; scope: string }> = [
+  {
+    depth: 'usual',
+    label: 'Usual places',
+    title: 'Camera, Movies, Downloads, messaging app media, game data, and folders where large files were found before.',
+    scope: 'in the usual places'
+  },
+  {
+    depth: 'deeper',
+    label: 'Deeper',
+    title: 'Usual places plus every folder up to four levels deep, including hidden folders and app data.',
+    scope: 'up to four levels deep'
+  },
+  {
+    depth: 'everything',
+    label: 'Whole phone',
+    title: 'Every folder on the phone. On a full phone this can take several minutes.',
+    scope: 'across the whole phone'
+  }
+];
+
+function storageDisplayName(storage: MtpStorage): string {
+  return storage.description || storage.volumeIdentifier || `Storage ${storage.id}`;
+}
+
+function largeFileFolderLabel(folderPath: string[]): string {
+  return folderPath.slice(1).join('/') || folderPath[0];
+}
+
+function isHiddenLargeFile(entry: LargeFileEntry): boolean {
+  return isHiddenFileName(entry.name) || entry.folderPath.slice(1).some((part) => isHiddenFileName(part));
+}
+
+function formatSeenAgo(timestamp: number): string {
+  const minutes = Math.round((Date.now() - timestamp) / 60_000);
+  if (minutes < 1) {
+    return 'just now';
+  }
+  const relative = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+  if (minutes < 60) {
+    return relative.format(-minutes, 'minute');
+  }
+  const hours = Math.round(minutes / 60);
+  return hours < 24 ? relative.format(-hours, 'hour') : relative.format(-Math.round(hours / 24), 'day');
+}
+
+function readRememberedLargeFiles(memoryKey: string | null): LargeFileEntry[] {
+  try {
+    return memoryKey ? parseRememberedLargeFiles(window.localStorage.getItem(memoryKey)) : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberLargeFiles(memoryKey: string | null, entries: LargeFileEntry[]): void {
+  try {
+    if (memoryKey) {
+      window.localStorage.setItem(memoryKey, serializeRememberedLargeFiles(entries));
+    }
+  } catch {
+    // Without storage the next scan only loses its head start.
+  }
+}
+
+function browserRowForLargeFile(entry: LargeFileEntry, deviceConnectionId: string): BrowserRow {
+  return {
+    key: entry.live
+      ? objectRowKey(deviceConnectionId, entry.live.object.storageId, entry.live.object.id)
+      : `remembered:${[...entry.folderPath, entry.name].join('/')}`,
+    name: entry.name,
+    kind: 'file',
+    size: entry.size,
+    modified: entry.modified,
+    type: largeFileFolderLabel(entry.folderPath),
+    object: entry.live?.object,
+    largeFile: entry
+  };
+}
+
+function LargeFilesBar({
+  open,
+  device,
+  entries,
+  showHidden,
+  transfersActive,
+  rescanRequest,
+  onEntries
+}: {
+  open: boolean;
+  device: MtpDeviceInventory;
+  entries: LargeFileEntry[];
+  showHidden: boolean;
+  transfersActive: boolean;
+  // Bumped by Cmd+R or the toolbar Refresh button while this view is open.
+  rescanRequest: number;
+  // remember is true once a scan ends, so memory is written once per scan.
+  onEntries: (entries: LargeFileEntry[], remember: boolean) => void;
+}): JSX.Element {
+  const [depth, setDepth] = useState<LargeFileScanDepth>('usual');
+  const [scanning, setScanning] = useState(false);
+  const [progress, setProgress] = useState<LargeFileScanUpdate | null>(null);
+  const [outcome, setOutcome] = useState<LargeFileScanResult | null>(null);
+  const scanRun = useRef(0);
+  const stopRequested = useRef(false);
+  const seenRescanRequest = useRef(rescanRequest);
+
+  async function runScan(nextDepth: LargeFileScanDepth): Promise<void> {
+    const run = scanRun.current + 1;
+    scanRun.current = run;
+    stopRequested.current = false;
+    setDepth(nextDepth);
+    setScanning(true);
+    setProgress(null);
+    setOutcome(null);
+    const result = await scanForLargeFiles({
+      storages: device.storages.map((storage) => ({ id: storage.id, name: storageDisplayName(storage) })),
+      depth: nextDepth,
+      known: entries,
+      list: async (storageId, folderId) => {
+        const listing = await window.mtp.listFolder(device.index, device.connectionId, storageId, folderId);
+        if (!listing.ok) {
+          throw new Error(listing.message || 'The phone did not list a folder.');
+        }
+        return listing.objects;
+      },
+      shouldStop: () => stopRequested.current || scanRun.current !== run,
+      onUpdate: (update) => {
+        if (scanRun.current === run) {
+          setProgress(update);
+          if (update.entries) {
+            onEntries(update.entries, false);
+          }
+        }
+      }
+    });
+    if (scanRun.current !== run) {
+      return; // A newer scan started from these results and remembers its own.
+    }
+    onEntries(result.entries, true);
+    setOutcome(result);
+    setScanning(false);
+  }
+
+  function stopScan(): void {
+    if (!scanning) {
+      return;
+    }
+    scanRun.current += 1; // The folder being listed finishes in the background and is ignored.
+    setScanning(false);
+    setOutcome({ entries, foldersChecked: progress?.foldersChecked ?? 0, complete: false });
+    onEntries(entries, true);
+  }
+
+  useEffect(() => {
+    if (!open) {
+      stopScan();
+    } else if (!outcome?.complete) {
+      void runScan(depth);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (rescanRequest === seenRescanRequest.current) {
+      return;
+    }
+    seenRescanRequest.current = rescanRequest;
+    if (open) {
+      void runScan(depth);
+    }
+  }, [rescanRequest]);
+
+  // A phone that goes away must not get another folder request, which would reopen its session.
+  useEffect(
+    () => () => {
+      stopRequested.current = true;
+    },
+    []
+  );
+
+  const visibleEntries = showHidden ? entries : entries.filter((entry) => !isHiddenLargeFile(entry));
+  const hiddenCount = entries.length - visibleEntries.length;
+  const hiddenNote = hiddenCount ? ` · ${hiddenCount} hidden not shown` : '';
+  const totalBytes = visibleEntries.reduce((total, entry) => total + entry.size, 0);
+  const threshold = formatBytes(LARGE_FILE_MIN_BYTES);
+  const scope = LARGE_FILE_DEPTHS.find((option) => option.depth === depth)?.scope ?? '';
+  const summary = visibleEntries.length
+    ? `${pluralize(visibleEntries.length, 'file')} over ${threshold} · ${formatBytes(totalBytes)}${hiddenNote}`
+    : scanning
+      ? 'Looking for large files'
+      : `No files over ${threshold}${hiddenNote}`;
+  const status = scanning
+    ? `Checking ${progress ? largeFileFolderLabel(progress.currentFolder) : 'the phone'} · ${pluralize(
+        progress?.foldersChecked ?? 0,
+        'folder'
+      )} checked${transfersActive ? ' · may pause while files copy' : ''}`
+    : outcome?.error
+      ? `Stopped: ${outcome.error}`
+      : outcome && !outcome.complete
+        ? `Stopped after ${pluralize(outcome.foldersChecked, 'folder')}. Files not checked again show when they were last seen.`
+        : outcome
+          ? `Checked ${pluralize(outcome.foldersChecked, 'folder')} ${scope}.`
+          : 'Files found before are listed until their folders are checked again.';
+
+  return (
+    <div className="large-files-bar" hidden={!open}>
+      <strong role="status" aria-live="polite">
+        {summary}
+      </strong>
+      <span className="large-files-status" title={status}>
+        {status}
+      </span>
+      <div className="transfer-mode-switch large-files-depth" role="group" aria-label="Where to look">
+        {LARGE_FILE_DEPTHS.map((option) => (
+          <button
+            key={option.depth}
+            type="button"
+            className={depth === option.depth ? 'active' : ''}
+            aria-pressed={depth === option.depth}
+            title={option.title}
+            onClick={() => void runScan(option.depth)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+      {scanning ? (
+        <button type="button" className="text-button" onClick={stopScan}>
+          <X size={14} />
+          <span>Stop</span>
+        </button>
+      ) : (
+        <button type="button" className="text-button" onClick={() => void runScan(depth)}>
+          <RotateCcw size={14} />
+          <span>Rescan</span>
+        </button>
+      )}
+      {scanning && (
+        <div className="folder-progress-track large-files-progress" aria-hidden="true">
+          <div className="folder-progress-fill" />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function App(): JSX.Element {
   const [status, setStatus] = useState<DeviceStatus | null>(null);
   const [inventory, setInventory] = useState<InventoryResult | null>(null);
@@ -1093,6 +1355,8 @@ export function App(): JSX.Element {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [appUpdate, setAppUpdate] = useState<AppUpdateCheckResult | null>(null);
   const [updateCheckBusy, setUpdateCheckBusy] = useState(false);
+  const [largeFiles, setLargeFiles] = useState<LargeFileEntry[]>([]);
+  const [largeFilesRescanRequest, setLargeFilesRescanRequest] = useState(0);
   const workspaceRef = useRef<HTMLElement>(null);
   const queuePaneRef = useRef<HTMLElement>(null);
   const phoneBrowserRef = useRef<HTMLDivElement>(null);
@@ -1119,12 +1383,20 @@ export function App(): JSX.Element {
   const scanCancelRequested = useRef(false);
   const lastScanFinishedAt = useRef(0);
   const connectionAttemptClock = useRef<{ connectionKey: string; startedAt: number } | null>(null);
+  const revealRowKey = useRef<string | null>(null);
+  // Object IDs deleted or moved off the phone during this connection; a running scan may still report them.
+  const forgottenObjectIds = useRef(new Set<number>());
+  const browserSort = useRef<{ key: SortKey; direction: SortDirection } | null>(null);
 
   const inventoryDevices = inventory?.devices ?? [];
   const device =
     inventoryDevices.find((candidate) => candidate.connectionId === selectedDeviceConnectionId) ??
     inventoryDevices[0] ??
     null;
+  const largeFilesOpen = !!location.largeFiles;
+  const largeFilesMemoryKey = device?.serial
+    ? `${LARGE_FILES_STORAGE_PREFIX}${inventoryDeviceStableIdentityKey(device)}`
+    : null;
   const currentFolderKey =
     device && location.storageId !== null
       ? folderKey(device.connectionId, location.storageId, location.folderId)
@@ -1149,8 +1421,13 @@ export function App(): JSX.Element {
     null;
   const rawDeviceName = rawDevice?.vendor || rawDevice?.product || 'Android phone';
   const locationRows = useMemo(
-    () => makeRows(device, location, currentFolderObjects),
-    [currentFolderObjects, device, location]
+    () =>
+      largeFilesOpen && device
+        ? largeFiles
+            .filter((entry) => phoneShowHiddenFiles || !isHiddenLargeFile(entry))
+            .map((entry) => browserRowForLargeFile(entry, device.connectionId))
+        : makeRows(device, location, currentFolderObjects),
+    [currentFolderObjects, device, largeFiles, largeFilesOpen, location, phoneShowHiddenFiles]
   );
   const visibleLocationRows = useMemo(
     () =>
@@ -1171,6 +1448,7 @@ export function App(): JSX.Element {
     [rows, selectedKeys]
   );
 
+  const allRowsSelected = rows.length > 0 && selectedRows.length === rows.length;
   const selectedTransferRows = selectedRows.filter(
     (row) => (row.kind === 'file' || row.kind === 'folder') && row.object
   );
@@ -1322,7 +1600,7 @@ export function App(): JSX.Element {
     phoneDownloadPlanning !== null ||
     jobs.some((job) => job.status === 'active' || job.status === 'queued');
   const canRenamePhoneSelection =
-    hasDevice && selectedTransferRows.length === 1 && !phoneMutationBlocked;
+    hasDevice && selectedTransferRows.length === 1 && !phoneMutationBlocked && !largeFilesOpen;
   const canDeletePhoneSelection =
     hasDevice && selectedTransferRows.length > 0 && !phoneMutationBlocked;
   const localMutationBlocked =
@@ -2517,7 +2795,9 @@ export function App(): JSX.Element {
   }
 
   function refreshPhonePane(): void {
-    if (location.storageId === null) {
+    if (largeFilesOpen) {
+      setLargeFilesRescanRequest((request) => request + 1);
+    } else if (location.storageId === null) {
       void handleManualRefresh();
     } else {
       void loadFolder(location.storageId, location.folderId, true);
@@ -3201,6 +3481,10 @@ export function App(): JSX.Element {
       setTransferNotice({ phase: 'failed', message: 'Select one phone file or folder to rename.' });
       return;
     }
+    if (targetRow.largeFile) {
+      setTransferNotice({ phase: 'failed', message: 'Use Show in Folder, then rename the file there.' });
+      return;
+    }
     if (phoneMutationBlocked) {
       setTransferNotice({ phase: 'failed', message: 'Wait for the current phone operation to finish.' });
       return;
@@ -3297,11 +3581,12 @@ export function App(): JSX.Element {
         }
         return;
       }
+      const deletedIds = new Set(result.deletedObjectIds);
+      forgetPhoneObjects(targets.filter((target) => deletedIds.has(target.objectId)));
+      setSelectedKeys(
+        new Set(result.failures.map(({ target }) => objectRowKey(device.connectionId, target.storageId, target.objectId)))
+      );
       if (location.storageId !== null) {
-        const failedKeys = result.failures.map(({ target }) =>
-          objectRowKey(device.connectionId, location.storageId as number, target.objectId)
-        );
-        setSelectedKeys(new Set(failedKeys));
         await loadFolder(location.storageId, location.folderId, true);
       }
       setTransferNotice({ phase: result.ok ? 'ready' : 'failed', message: result.message });
@@ -3579,6 +3864,32 @@ export function App(): JSX.Element {
   }, [device?.connectionId, location.folderId, location.storageId]);
 
   useEffect(() => {
+    const key = revealRowKey.current;
+    if (key && rows.some((row) => row.key === key)) {
+      revealRowKey.current = null;
+      phoneBrowserRef.current?.querySelector('.selected')?.scrollIntoView({ block: 'center' });
+    }
+  }, [rows]);
+
+  useEffect(() => {
+    forgottenObjectIds.current = new Set();
+    setLargeFiles(readRememberedLargeFiles(largeFilesMemoryKey));
+  }, [device?.connectionId]);
+
+  // Large files opens biggest first; the folder sort comes back on leaving.
+  useEffect(() => {
+    if (largeFilesOpen) {
+      browserSort.current = { key: sortKey, direction: sortDirection };
+      setSortKey('size');
+      setSortDirection('desc');
+    } else if (browserSort.current) {
+      setSortKey(browserSort.current.key);
+      setSortDirection(browserSort.current.direction);
+      browserSort.current = null;
+    }
+  }, [largeFilesOpen]);
+
+  useEffect(() => {
     if (!browserLoading) {
       setLoadingElapsedSeconds(0);
       return;
@@ -3663,6 +3974,19 @@ export function App(): JSX.Element {
         event.job.parentId === location.folderId
       ) {
         void loadFolder(location.storageId, location.folderId, true);
+      }
+      const { job } = event;
+      if (
+        event.type === 'completed' &&
+        job.operation === 'move' &&
+        job.sourceRemovalStatus === 'removed' &&
+        job.direction === 'download' &&
+        job.deviceConnectionId === device?.connectionId &&
+        job.objectId !== undefined &&
+        job.storageId !== undefined &&
+        job.parentId !== undefined
+      ) {
+        forgetPhoneObjects([{ objectId: job.objectId, storageId: job.storageId, parentId: job.parentId }]);
       }
       if (
         event.job.direction === 'download' &&
@@ -3803,6 +4127,10 @@ export function App(): JSX.Element {
   }
 
   function openRow(row: BrowserRow): void {
+    if (row.largeFile) {
+      revealLargeFile(row.largeFile);
+      return;
+    }
     if (row.kind === 'storage' && row.storage) {
       navigate({
         storageId: row.storage.id,
@@ -3847,6 +4175,9 @@ export function App(): JSX.Element {
 
   function goUp(): void {
     if (location.storageId === null) {
+      if (largeFilesOpen) {
+        navigate(rootLocation);
+      }
       return;
     }
 
@@ -4215,6 +4546,68 @@ export function App(): JSX.Element {
     );
   }
 
+  function openLargeFiles(): void {
+    setActivePane('phone');
+    if (!largeFilesOpen) {
+      navigate(largeFilesLocation);
+    }
+  }
+
+  function revealLargeFile(entry: LargeFileEntry): void {
+    const live = entry.live;
+    if (!device || !live) {
+      return;
+    }
+    const folderId = live.crumbs[live.crumbs.length - 1].folderId;
+    const rowKey = objectRowKey(device.connectionId, live.object.storageId, live.object.id);
+    navigate({ storageId: live.storageId, folderId, crumbs: live.crumbs });
+    setSelectedKeys(new Set([rowKey]));
+    phoneSelectionAnchorKey.current = rowKey;
+    revealRowKey.current = rowKey;
+    setQuery('');
+    const cachedObjects = folderCache[folderKey(device.connectionId, live.storageId, folderId)];
+    if (cachedObjects && !cachedObjects.some((object) => object.id === live.object.id)) {
+      void loadFolder(live.storageId, folderId, true);
+    }
+  }
+
+  function updateLargeFiles(entries: LargeFileEntry[], remember: boolean): void {
+    const next = entries.filter((entry) => !entry.live || !forgottenObjectIds.current.has(entry.live.object.id));
+    setLargeFiles(next);
+    if (remember) {
+      rememberLargeFiles(largeFilesMemoryKey, next);
+    }
+  }
+
+  // Deleted or moved-off phone files leave Large files, its memory, and stale listings of their folders.
+  function forgetPhoneObjects(objects: Array<{ objectId: number; storageId: number; parentId: number }>): void {
+    if (!device || !objects.length) {
+      return;
+    }
+    const ids = new Set(objects.map((object) => object.objectId));
+    ids.forEach((id) => forgottenObjectIds.current.add(id));
+    const memoryKey = largeFilesMemoryKey;
+    setLargeFiles((current) => {
+      const next = current.filter((entry) => !entry.live || !ids.has(entry.live.object.id));
+      if (next.length !== current.length) {
+        rememberLargeFiles(memoryKey, next);
+      }
+      return next;
+    });
+    const connectionId = device.connectionId;
+    const openFolderKey = currentFolderKey;
+    setFolderCache((cache) => {
+      const next = { ...cache };
+      for (const object of objects) {
+        const key = folderKey(connectionId, object.storageId, object.parentId);
+        if (key !== openFolderKey) {
+          delete next[key];
+        }
+      }
+      return next;
+    });
+  }
+
   async function planPhoneRowsForDownload(
     sourceRows: BrowserRow[],
     destinationRoot: string,
@@ -4570,6 +4963,16 @@ export function App(): JSX.Element {
               <span>{phoneContextRow.kind === 'storage' ? 'Open Storage' : 'Open Folder'}</span>
             </button>
           )}
+          {phoneContextRow?.largeFile?.live && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => runContextMenuAction(() => openRow(phoneContextRow))}
+            >
+              <Folder size={15} />
+              <span>Show in Folder</span>
+            </button>
+          )}
           <button
             type="button"
             role="menuitem"
@@ -4601,7 +5004,7 @@ export function App(): JSX.Element {
           <button
             type="button"
             role="menuitem"
-            disabled={phoneActionCount !== 1 || phoneMutationBlocked}
+            disabled={phoneActionCount !== 1 || phoneMutationBlocked || largeFilesOpen}
             onClick={() =>
               runContextMenuAction(() => openRenamePhoneItemDialog(phoneActionRows[0]))
             }
@@ -4632,7 +5035,7 @@ export function App(): JSX.Element {
           <button
             type="button"
             role="menuitem"
-            disabled={location.storageId === null}
+            disabled={location.storageId === null && !largeFilesOpen}
             onClick={() => runContextMenuAction(goUp)}
           >
             <ArrowUp size={15} />
@@ -5331,6 +5734,18 @@ export function App(): JSX.Element {
                 </button>
               );
             })}
+            {hasDevice && !!device?.storages.length && (
+              <button
+                type="button"
+                className={`device-choice ${largeFilesOpen ? 'active' : ''}`}
+                title="Find the biggest files on the phone, starting where they usually are."
+                onClick={openLargeFiles}
+              >
+                <ScanSearch size={14} />
+                <span>Large files</span>
+                <small>Biggest files first</small>
+              </button>
+            )}
             {!device?.storages.length && (
               <div className="empty-note">No mounted MTP storage.</div>
             )}
@@ -5400,7 +5815,7 @@ export function App(): JSX.Element {
         </aside>
 
         <section
-          className={`browser-pane ${isDraggingMacFiles ? 'upload-hover' : ''}`}
+          className={`browser-pane ${isDraggingMacFiles ? 'upload-hover' : ''} ${largeFilesOpen ? 'large-files-mode' : ''}`}
           ref={phoneBrowserRef}
           tabIndex={0}
           onFocus={() => setActivePane('phone')}
@@ -5428,7 +5843,7 @@ export function App(): JSX.Element {
               <button
                 className="icon-button"
                 title="Enclosing folder (Cmd+Up)"
-                disabled={location.storageId === null}
+                disabled={location.storageId === null && !largeFilesOpen}
                 onClick={goUp}
               >
                 <ArrowUp size={16} />
@@ -5534,11 +5949,16 @@ export function App(): JSX.Element {
             <div className="breadcrumbs" ref={phoneBreadcrumbsRef} aria-label="Phone folder path">
               <button
                 title="Device"
-                aria-current={location.crumbs.length === 0 ? 'page' : undefined}
+                aria-current={location.crumbs.length === 0 && !largeFilesOpen ? 'page' : undefined}
                 onClick={() => navigate(rootLocation)}
               >
                 Device
               </button>
+              {largeFilesOpen && (
+                <button type="button" aria-current="page">
+                  Large files
+                </button>
+              )}
               {location.crumbs.map((crumb, index) => (
                 <button
                   key={`${crumb.folderId}-${index}`}
@@ -5685,7 +6105,19 @@ export function App(): JSX.Element {
                 )}
               </div>
             )}
-            {hasDevice && !browserLoading && !currentFolderError && !isDraggingMacFiles && (
+            {device && (
+              <LargeFilesBar
+                key={device.connectionId}
+                open={largeFilesOpen && hasDevice}
+                device={device}
+                entries={largeFiles}
+                showHidden={phoneShowHiddenFiles}
+                transfersActive={queueSummary.cancellable > 0}
+                rescanRequest={largeFilesRescanRequest}
+                onEntries={updateLargeFiles}
+              />
+            )}
+            {hasDevice && !largeFilesOpen && !browserLoading && !currentFolderError && !isDraggingMacFiles && (
               <div className="folder-summary-bar" role="status" aria-live="polite">
                 <strong>{currentLocationSummary}</strong>
                 <span title={phoneSelectionSummary || phoneSelectionGuidance}>
@@ -5828,7 +6260,32 @@ export function App(): JSX.Element {
                 </colgroup>
                 <thead>
                   <tr>
-                    <th className="select-col" />
+                    <th className="select-col">
+                      <button
+                        type="button"
+                        className="row-check"
+                        role="checkbox"
+                        aria-checked={allRowsSelected ? true : selectedRows.length ? 'mixed' : false}
+                        aria-label="Select all"
+                        disabled={!rows.length}
+                        onClick={() => {
+                          if (allRowsSelected) {
+                            setSelectedKeys(new Set());
+                            phoneSelectionAnchorKey.current = null;
+                          } else {
+                            selectAllPhoneRows();
+                          }
+                        }}
+                      >
+                        {allRowsSelected ? (
+                          <CheckCircle2 size={14} />
+                        ) : selectedRows.length ? (
+                          <CircleMinus size={14} />
+                        ) : (
+                          <Circle size={12} />
+                        )}
+                      </button>
+                    </th>
                     <th>
                       <button onClick={() => toggleSort('name')}>Name</button>
                     </th>
@@ -5839,7 +6296,7 @@ export function App(): JSX.Element {
                       <button onClick={() => toggleSort('modified')}>Modified</button>
                     </th>
                     <th>
-                      <button onClick={() => toggleSort('type')}>Type</button>
+                      <button onClick={() => toggleSort('type')}>{largeFilesOpen ? 'Folder' : 'Type'}</button>
                     </th>
                   </tr>
                 </thead>
@@ -5847,7 +6304,7 @@ export function App(): JSX.Element {
                   {rows.map((row) => (
                     <tr
                       key={row.key}
-                      className={selectedKeys.has(row.key) ? 'selected' : ''}
+                      className={`${selectedKeys.has(row.key) ? 'selected' : ''} ${row.largeFile && !row.object ? 'remembered' : ''}`}
                       draggable={row.kind === 'file' || row.kind === 'folder'}
                       onDragStart={(event) => startFileDrag(row, event)}
                       onContextMenu={(event) => openPhoneContextMenu(event, row)}
@@ -5857,9 +6314,26 @@ export function App(): JSX.Element {
                       onDoubleClick={() => openRow(row)}
                     >
                       <td className="select-col">
-                        {selectedKeys.has(row.key) ? <CheckCircle2 size={14} /> : <Circle size={12} />}
+                        {/* A tickbox adds or removes only its own row; clicking the row replaces the selection. */}
+                        <button
+                          type="button"
+                          className="row-check"
+                          role="checkbox"
+                          aria-checked={selectedKeys.has(row.key)}
+                          aria-label={`Select ${row.name}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            toggleRowSelection(row, true, event.shiftKey);
+                          }}
+                          onDoubleClick={(event) => event.stopPropagation()}
+                        >
+                          {selectedKeys.has(row.key) ? <CheckCircle2 size={14} /> : <Circle size={12} />}
+                        </button>
                       </td>
-                      <td className="name-cell" title={row.name}>
+                      <td
+                        className="name-cell"
+                        title={row.largeFile ? [...row.largeFile.folderPath, row.name].join('/') : row.name}
+                      >
                         <div className="name-cell-content">
                           <span className={`file-icon ${row.kind}`}>
                             <FileIcon row={row} />
@@ -5869,7 +6343,10 @@ export function App(): JSX.Element {
                       </td>
                       <td>{formatBrowserRowSize(row)}</td>
                       <td>{row.kind === 'file' ? formatDate(row.modified) : ''}</td>
-                      <td>{row.type}</td>
+                      <td title={row.type}>
+                        {row.type}
+                        {row.largeFile && !row.object ? ` · last seen ${formatSeenAgo(row.largeFile.seenAt)}` : ''}
+                      </td>
                     </tr>
                   ))}
                   {!rows.length && (
@@ -5879,7 +6356,9 @@ export function App(): JSX.Element {
                           ? 'Scanning device...'
                           : folderLoading
                             ? 'Listing folder. Large photo or video folders can take a while.'
-                            : currentFolderError || 'No items in this location.'}
+                            : largeFilesOpen
+                              ? 'No large files found yet.'
+                              : currentFolderError || 'No items in this location.'}
                       </td>
                     </tr>
                   )}

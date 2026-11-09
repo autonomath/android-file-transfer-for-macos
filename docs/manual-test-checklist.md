@@ -131,6 +131,17 @@ For an authorized Pixel 9 test device, identify it locally with `adb devices` an
 - Confirm Details remains collapsed by default and contains the structured phase, physical connection ID, USB session ID, helper path, and bounded stderr when opened.
 - Confirm the log contains no libmtp reset attempt, overlapping helper, privileged runner, or duplicate session. Automatic attempts must be visible as **Still trying** in the UI.
 
+## Large Files
+
+- With at least one video over 50 MB in DCIM/Camera, open Large files from the sidebar. Confirm the scan starts on its own, Camera, Movies, and Download are listed before Pictures in the log, and the video appears with its folder and size.
+- Double-click a result, then use right-click > Show in Folder on another. Confirm the phone browser opens that folder with the file selected and scrolled into view, and Back returns to Large files without a new scan.
+- In Large files, confirm Cmd+[ / Left Arrow returns to the previous location and Cmd+] comes back, Cmd+Up returns to the storage list, and Cmd+R or the toolbar Refresh button reruns the scan at the selected depth instead of rechecking the phone connection.
+- Select results with click, Shift-click, Cmd-click, Cmd+A, and the tickboxes. Confirm a tickbox adds or removes only its own file, including the last selected one, the header tickbox selects all or none, the transfer bar totals the selection, and Copy queues it to the open Mac folder like any other copy.
+- Copy a disposable file over 50 MB into the phone's Download folder and Rescan. Move it to the Mac and confirm it leaves Large files when the move completes. Copy it back, Delete it from Large files, and confirm it does not return after Rescan or when Download is opened in the browser.
+- Choose Deeper, then Whole phone. Confirm each starts a new scan and Stop ends it right away with the number of folders checked.
+- Reconnect the phone and reopen Large files. Confirm earlier results appear immediately, dimmed with a last seen label, become transferable as their folders are checked again, and a file deleted on the phone in between disappears once its folder is checked.
+- While a large copy runs, open Large files. Confirm the status says the scan may pause while files copy, and browsing still responds after closing the view.
+
 ## Failure-State Checks
 
 - Phone locked or waiting for Android permission: the opening panel should stay visible instead of an empty table and tell the user to keep the phone unlocked and tap Allow if Android asks.
