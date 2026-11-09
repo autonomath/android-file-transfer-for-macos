@@ -495,6 +495,8 @@ export type AppMenuCommand =
   | 'copy-to-queue'
   | 'copy-selection'
   | 'paste-selection'
+  | 'go-back'
+  | 'go-forward'
   | 'folder-up'
   | 'refresh'
   | 'select-all'

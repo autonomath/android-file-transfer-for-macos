@@ -2500,6 +2500,38 @@ export function App(): JSX.Element {
     goUp();
   }
 
+  function goBackActivePane(): void {
+    if (activePane === 'mac') {
+      void goBackLocalDirectory();
+    } else {
+      goBack();
+    }
+  }
+
+  function goForwardActivePane(): void {
+    if (activePane === 'mac') {
+      void goForwardLocalDirectory();
+    } else {
+      goForward();
+    }
+  }
+
+  function refreshPhonePane(): void {
+    if (location.storageId === null) {
+      void handleManualRefresh();
+    } else {
+      void loadFolder(location.storageId, location.folderId, true);
+    }
+  }
+
+  function refreshActivePane(): void {
+    if (activePane === 'mac') {
+      void loadLocalDirectory(localPath || undefined);
+    } else {
+      refreshPhonePane();
+    }
+  }
+
   function copyActivePaneSelectionToQueue(): void {
     if (activePane === 'mac') {
       if (!selectedLocalEntries.length) {
@@ -2763,6 +2795,12 @@ export function App(): JSX.Element {
       case 'paste-selection':
         void pasteTransferClipboard();
         break;
+      case 'go-back':
+        goBackActivePane();
+        break;
+      case 'go-forward':
+        goForwardActivePane();
+        break;
       case 'folder-up':
         goUpActivePane();
         break;
@@ -2773,7 +2811,7 @@ export function App(): JSX.Element {
         focusMacPane();
         break;
       case 'refresh':
-        void handleManualRefresh();
+        refreshActivePane();
         break;
       case 'select-all':
         selectAllActiveContext();
@@ -2846,6 +2884,11 @@ export function App(): JSX.Element {
       void goUpLocalDirectory();
       return;
     }
+    if ((event.metaKey || event.ctrlKey) && key === 'arrowdown') {
+      event.preventDefault();
+      openSelectedLocalEntry();
+      return;
+    }
     if (event.key === 'F2') {
       event.preventDefault();
       openRenameLocalItemDialog();
@@ -2890,7 +2933,7 @@ export function App(): JSX.Element {
       moveLocalSelection(-1, event.shiftKey);
     } else if (event.key === 'ArrowLeft') {
       event.preventDefault();
-      void goUpLocalDirectory();
+      void goBackLocalDirectory();
     } else if (event.key === 'ArrowRight' || event.key === 'Enter') {
       event.preventDefault();
       openSelectedLocalEntry();
@@ -3982,7 +4025,7 @@ export function App(): JSX.Element {
       movePhoneSelection(-1, event.shiftKey);
     } else if (event.key === 'ArrowLeft') {
       event.preventDefault();
-      goUp();
+      goBack();
     } else if (event.key === 'ArrowRight' || event.key === 'Enter') {
       event.preventDefault();
       openSelectedPhoneRow();
@@ -4752,7 +4795,7 @@ export function App(): JSX.Element {
 
       if (key === 'r') {
         event.preventDefault();
-        void handleManualRefresh();
+        refreshActivePane();
         return;
       }
 
@@ -4777,12 +4820,6 @@ export function App(): JSX.Element {
       if (key === 'd' && !isEditableElement(event.target)) {
         event.preventDefault();
         openRenameSelectedItem();
-        return;
-      }
-
-      if (key === 'b' && !isEditableElement(event.target)) {
-        event.preventDefault();
-        goUpActivePane();
         return;
       }
 
@@ -5377,12 +5414,12 @@ export function App(): JSX.Element {
         >
           <div className="browser-toolbar">
             <div className="nav-buttons">
-              <button className="icon-button" title="Back" disabled={!backStack.length} onClick={goBack}>
+              <button className="icon-button" title="Back (Cmd+[)" disabled={!backStack.length} onClick={goBack}>
                 <ChevronLeft size={17} />
               </button>
               <button
                 className="icon-button"
-                title="Forward"
+                title="Forward (Cmd+])"
                 disabled={!forwardStack.length}
                 onClick={goForward}
               >
@@ -5390,11 +5427,20 @@ export function App(): JSX.Element {
               </button>
               <button
                 className="icon-button"
-                title="Up"
+                title="Enclosing folder (Cmd+Up)"
                 disabled={location.storageId === null}
                 onClick={goUp}
               >
                 <ArrowUp size={16} />
+              </button>
+              <button
+                className="icon-button"
+                title="Refresh (Cmd+R)"
+                aria-label="Refresh the open phone folder"
+                disabled={isScanning || folderLoading}
+                onClick={refreshPhonePane}
+              >
+                <RefreshCcw size={15} />
               </button>
             </div>
 
@@ -5938,7 +5984,7 @@ export function App(): JSX.Element {
                   </button>
                   <button
                     className="icon-button"
-                    title="Back"
+                    title="Back (Cmd+[)"
                     aria-label="Back in Mac folder history"
                     disabled={!localBackStack.length}
                     onClick={() => void goBackLocalDirectory()}
@@ -5947,7 +5993,7 @@ export function App(): JSX.Element {
                   </button>
                   <button
                     className="icon-button"
-                    title="Forward"
+                    title="Forward (Cmd+])"
                     aria-label="Forward in Mac folder history"
                     disabled={!localForwardStack.length}
                     onClick={() => void goForwardLocalDirectory()}
@@ -5956,12 +6002,21 @@ export function App(): JSX.Element {
                   </button>
                   <button
                     className="icon-button"
-                    title="Up"
+                    title="Enclosing folder (Cmd+Up)"
                     aria-label="Parent Mac folder"
                     disabled={!localParentPath || localParentPath === localPath}
                     onClick={() => void goUpLocalDirectory()}
                   >
                     <ArrowUp size={14} />
+                  </button>
+                  <button
+                    className="icon-button"
+                    title="Refresh (Cmd+R)"
+                    aria-label="Refresh the open Mac folder"
+                    disabled={!localPath || localLoading}
+                    onClick={() => void loadLocalDirectory(localPath)}
+                  >
+                    <RefreshCcw size={14} />
                   </button>
                 </div>
                 <div className="local-view-actions">

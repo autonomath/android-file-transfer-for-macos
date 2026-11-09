@@ -4765,7 +4765,7 @@ function buildApplicationMenu(): void {
         },
         { type: 'separator' },
         {
-          label: 'Check Phone Now',
+          label: 'Refresh',
           accelerator: 'CommandOrControl+R',
           click: () => sendAppMenuCommand('refresh')
         },
@@ -4821,12 +4821,6 @@ function buildApplicationMenu(): void {
       label: 'View',
       submenu: [
         {
-          label: 'Folder Up',
-          accelerator: 'CommandOrControl+B',
-          click: () => sendAppMenuCommand('folder-up')
-        },
-        { type: 'separator' },
-        {
           label: 'Focus Phone Pane',
           accelerator: 'CommandOrControl+1',
           click: () => sendAppMenuCommand('focus-phone')
@@ -4864,6 +4858,26 @@ function buildApplicationMenu(): void {
         },
         { type: 'separator' },
         { role: 'togglefullscreen' }
+      ]
+    },
+    {
+      label: 'Go',
+      submenu: [
+        {
+          label: 'Back',
+          accelerator: 'CommandOrControl+[',
+          click: () => sendAppMenuCommand('go-back')
+        },
+        {
+          label: 'Forward',
+          accelerator: 'CommandOrControl+]',
+          click: () => sendAppMenuCommand('go-forward')
+        },
+        {
+          label: 'Enclosing Folder',
+          accelerator: 'CommandOrControl+Up',
+          click: () => sendAppMenuCommand('folder-up')
+        }
       ]
     },
     {

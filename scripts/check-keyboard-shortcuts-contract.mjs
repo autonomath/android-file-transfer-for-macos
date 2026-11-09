@@ -14,11 +14,16 @@ assert.match(app, /onKeyDown=\{handlePhonePaneKeyDown\}/, 'Phone pane must wire 
 assert.match(app, /onKeyDown=\{handleLocalPaneKeyDown\}/, 'Mac pane must wire keyboard handling.');
 assert.match(app, /ref=\{searchInputRef\}/, 'Global find shortcut must focus the visible filter input.');
 assert.match(app, /key === 'f'[\s\S]*searchInputRef\.current\?\.focus\(\)/, 'Cmd/Ctrl+F must focus the filter.');
-assert.match(app, /key === 'r'[\s\S]*handleManualRefresh\(\)/, 'Cmd/Ctrl+R must refresh the phone connection.');
+assert.match(app, /key === 'r'\) \{\s*event\.preventDefault\(\);\s*refreshActivePane\(\)/, 'Cmd/Ctrl+R must refresh the active pane.');
 assert.match(app, /key === '1'[\s\S]*focusPhonePane\(\)/, 'Cmd/Ctrl+1 must focus the phone pane.');
 assert.match(app, /key === '2'[\s\S]*focusMacPane\(\)/, 'Cmd/Ctrl+2 must focus the Mac pane.');
 assert.match(app, /key === 'n'[\s\S]*openNewFolderForActivePane\(\)/, 'Cmd/Ctrl+N must create a folder in the active pane.');
-assert.match(app, /key === 'b'[\s\S]*goUpActivePane\(\)/, 'Cmd/Ctrl+B must go up in the active pane.');
+assert.doesNotMatch(app, /key === 'b'/, 'Cmd/Ctrl+B is not a navigation shortcut; Back is Cmd+[ in the Go menu.');
+assert.doesNotMatch(
+  app,
+  /event\.key === 'ArrowLeft'\) \{\s*event\.preventDefault\(\);\s*(?:void goUpLocalDirectory|goUp)\(\)/,
+  'Left arrow goes back in history; Cmd+Up goes to the enclosing folder.'
+);
 assert.match(
   app,
   /key === 'c' && !isEditableElement\(event\.target\)[\s\S]*if \(!activePaneHasTransferSelection\)[\s\S]*event\.preventDefault\(\)[\s\S]*event\.shiftKey[\s\S]*copyActivePaneSelectionToQueue\(\)/,
