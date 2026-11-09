@@ -515,6 +515,7 @@ export type AppMenuCommand =
 export interface MtpApi {
   getStatus: () => Promise<DeviceStatus>;
   requestQuitUsbApp: (request: QuitUsbAppRequest) => Promise<QuitUsbAppResult>;
+  releaseUsbConnection: (connectionId: string) => Promise<QuitUsbAppResult>;
   scanInventory: () => Promise<InventoryResult>;
   listFolder: (
     deviceIndex: number,

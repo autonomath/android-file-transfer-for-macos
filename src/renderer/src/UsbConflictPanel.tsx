@@ -1,14 +1,18 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import type { QuitUsbAppRequest, QuitUsbAppResult, UsbConflict } from '../../shared/types';
 
-export function UsbConflictPanel({ phoneName, conflict, requestQuit }: {
+export function UsbConflictPanel({ phoneName, conflict, requestQuit, releaseConnection }: {
   phoneName: string;
   conflict?: UsbConflict;
   requestQuit: (request: QuitUsbAppRequest) => Promise<QuitUsbAppResult>;
+  releaseConnection: (connectionId: string) => Promise<QuitUsbAppResult>;
 }): JSX.Element {
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState('');
+  const appIds = conflict?.apps.map((client) => client.id).join(',') ?? '';
+  // A message about an app that has since let go (for example "Quit requested") is no longer true.
+  useEffect(() => setFeedback(''), [appIds]);
 
   async function quit(appId: string): Promise<void> {
     if (!conflict || pendingId) return;
@@ -24,9 +28,22 @@ export function UsbConflictPanel({ phoneName, conflict, requestQuit }: {
     }
   }
 
+  async function release(): Promise<void> {
+    if (!conflict || pendingId) return;
+    setPendingId('release');
+    setFeedback('Releasing the phone…');
+    try {
+      setFeedback((await releaseConnection(conflict.connectionId)).message);
+    } catch {
+      setFeedback('Could not release the phone. Unplug it and plug it back in.');
+    } finally {
+      setPendingId(null);
+    }
+  }
+
   return (
     <div className="connection-gate-copy usb-conflict">
-      <h1>Another app is using your phone</h1>
+      <h1>{conflict && !conflict.apps.length ? 'macOS is holding your phone' : 'Another app is using your phone'}</h1>
       <p>
         {phoneName} is connected, but its file connection is already in use.
         We’ll keep checking and connect when it’s available.
@@ -59,6 +76,29 @@ export function UsbConflictPanel({ phoneName, conflict, requestQuit }: {
             </section>
           ))}
           <p className="usb-conflict-footnote">A normal Quit request lets the app finish work, show a save prompt, or decline. You can reopen it when you need it again.</p>
+        </div>
+      ) : conflict ? (
+        <div className="usb-conflict-apps">
+          <section className="usb-conflict-app" aria-label="macOS camera import">
+            <div>
+              <h2>macOS camera import</h2>
+              <p className="usb-conflict-evidence">No app is using it</p>
+              <p className="usb-conflict-impact" id="impact-camera-import">
+                macOS kept the phone after the last app that used it let go. Releasing it closes nothing you have
+                open; macOS starts camera import again when an app asks for it.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="text-button usb-conflict-quit"
+              disabled={pendingId !== null}
+              aria-describedby="impact-camera-import"
+              onClick={() => void release()}
+            >
+              {pendingId === 'release' ? <Loader2 size={15} className="spin" /> : null}
+              {pendingId === 'release' ? 'Releasing…' : 'Release the phone'}
+            </button>
+          </section>
         </div>
       ) : (
         <p className="usb-conflict-unknown">

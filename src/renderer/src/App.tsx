@@ -5541,6 +5541,7 @@ export function App(): JSX.Element {
               phoneName={rawDeviceName}
               conflict={usbConflict}
               requestQuit={window.mtp.requestQuitUsbApp}
+              releaseConnection={window.mtp.releaseUsbConnection}
             />
           ) : (
           <div className="connection-gate-copy">

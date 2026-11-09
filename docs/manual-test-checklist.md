@@ -156,6 +156,7 @@ For an authorized Pixel 9 test device, identify it locally with `adb devices` an
 Some Android devices remain visible to IOKit in File Transfer mode while OpenSession returns `PTP_ERROR_IO`. Treat this as **phone did not answer**, never as readable storage or a macOS permission problem.
 
 - With `ptpcamerad` shown as the selected phone's `UsbExclusiveOwner`, launch the app. Confirm it explains the conflict and waits without terminating the daemon or any client app.
+- Quit the camera-import client (for example Google Drive) while `ptpcamerad` still owns the phone. Confirm the panel says macOS is holding the phone, the stale Quit message is gone, and Release the phone frees it and connects within a few seconds. With a client still running, confirm Release is not offered.
 - Confirm no camera-service process is terminated, regardless of its owner or whether a client was identified.
 - Confirm `mtp-json status` can still report the raw Android USB interface without opening a file session.
 - Confirm a failed open keeps the browser hidden, shows **Still trying to open your phone files...**, and does not invoke a password prompt or USB reset.

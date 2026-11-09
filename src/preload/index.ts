@@ -21,6 +21,7 @@ import type {
 const api: MtpApi = {
   getStatus: () => ipcRenderer.invoke('mtp:getStatus'),
   requestQuitUsbApp: (request) => ipcRenderer.invoke('mtp:requestQuitUsbApp', request),
+  releaseUsbConnection: (connectionId) => ipcRenderer.invoke('mtp:releaseUsbConnection', connectionId),
   scanInventory: () => ipcRenderer.invoke('mtp:scanInventory'),
   listFolder: (deviceIndex: number, deviceConnectionId: string, storageId: number, parentId: number) =>
     ipcRenderer.invoke('mtp:listFolder', deviceIndex, deviceConnectionId, storageId, parentId),

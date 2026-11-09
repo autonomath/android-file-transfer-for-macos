@@ -40,6 +40,14 @@ assert.match(
 assert.match(app, /keeps checking on its own for as long as the cable is in/);
 assert.match(app, /openingStillPending[\s\S]*!openingStillPending\) \{[\s\S]*rememberAutomaticScanFailure/);
 assert.match(app, /<UsbConflictPanel/);
+const releaseBody = main.slice(main.indexOf('async function releaseUsbConnection'), main.indexOf("appendLog(`user released the phone"));
+assert.ok(
+  releaseBody.indexOf('if (conflict.clients.length)') > 0 &&
+    releaseBody.indexOf('if (!isOwnCameraService(pid))') > releaseBody.indexOf('if (conflict.clients.length)') &&
+    releaseBody.indexOf("process.kill(pid, 'SIGTERM')") > releaseBody.indexOf('if (!isOwnCameraService(pid))'),
+  'Release must recheck that no app is registered and that the owner is the same user\'s ptpcamerad before one SIGTERM.'
+);
+assert.doesNotMatch(releaseBody, /SIGKILL/, 'Release must ask the camera-import daemon to stop, never kill it outright.');
 assert.match(app, /Opening was canceled/);
 assert.match(app, /tap <strong>Allow<\/strong> if Android asks/);
 assert.match(app, /className="primary-button connection-gate-primary"[\s\S]*<span>Try again<\/span>/);

@@ -63,6 +63,7 @@ import { keepBothPhoneName, temporaryPhoneTransferName } from '../shared/transfe
 import type {
   AppMenuCommand,
   QuitUsbAppRequest,
+  QuitUsbAppResult,
   AppUpdateCheckResult,
   CommonMacFolder,
   CreateLocalFolderRequest,
@@ -536,6 +537,57 @@ async function requestQuitUsbApp(request: QuitUsbAppRequest) {
       return addon.requestApplicationQuit(client.bundleId, client.bundlePath);
     }
   });
+}
+
+function isOwnCameraService(pid: number): boolean {
+  try {
+    const output = execFileSync('/bin/ps', ['-p', String(pid), '-o', 'uid=', '-o', 'comm='], {
+      encoding: 'utf8', timeout: 1000, maxBuffer: 16 * 1024
+    }).trim();
+    const match = output.match(/^(\d+)\s+(.+)$/);
+    return !!match && Number(match[1]) === process.getuid?.() && basename(match[2].trim()) === 'ptpcamerad';
+  } catch {
+    return false;
+  }
+}
+
+// Only on the user's click, and only when no running app is registered with macOS camera import:
+// then nothing asks launchd to restart it, so one normal stop frees the phone without a reset storm.
+// While an app still uses it, the panel offers that app's Quit instead.
+async function releaseUsbConnection(connectionId: string): Promise<QuitUsbAppResult> {
+  const changed = { ok: false, message: 'The phone connection changed. Checking again automatically.' };
+  if (typeof connectionId !== 'string') return changed;
+  await refreshRawDevices();
+  const rawDevice = lastRawDevices.find((entry) => rawDeviceConnectionId(entry) === connectionId);
+  if (!rawDevice || sessionConnectionId === connectionId) return changed;
+  const conflict = await inspectMacCameraConflict(rawDevice);
+  if (!conflict) return { ok: true, message: 'The phone is free. Connecting…' };
+  if (conflict.clients.length) {
+    return { ok: false, message: `${conflict.clients.map((client) => client.appName).join(', ')} is using the phone. Use its Quit button.` };
+  }
+  const pid = conflict.owner.pid;
+  if (!isOwnCameraService(pid)) return changed;
+  try {
+    process.kill(pid, 'SIGTERM');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') {
+      appendLog(`could not stop the idle macOS camera-import service (pid ${pid}): ${String(error)}`);
+      return { ok: false, message: 'macOS did not let go of the phone. Unplug it and plug it back in.' };
+    }
+  }
+  appendLog(`user released the phone from the idle macOS camera-import service (pid ${pid}); no app was registered with it`);
+  const deadline = Date.now() + 3000;
+  for (;;) {
+    const owner = findMacMtpCameraOwner(await readMacMtpInterfaces(), rawDevice);
+    if (!owner) return { ok: true, message: 'Released. Connecting to the phone…' };
+    if (owner.pid !== pid) {
+      return { ok: false, message: 'macOS reopened camera import for another app. Checking which app; its Quit button will appear here.' };
+    }
+    if (Date.now() >= deadline) {
+      return { ok: false, message: 'macOS did not let go of the phone. Unplug it and plug it back in.' };
+    }
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 150));
+  }
 }
 
 function bridgeFailureHint(stderr: string, timedOut: boolean): string | null {
@@ -4950,6 +5002,7 @@ app.whenReady().then(() => {
   );
   ipcMain.handle('mtp:cancelConnectionAttempt', () => cancelConnectionAttempt());
   ipcMain.handle('mtp:requestQuitUsbApp', (_event, request: QuitUsbAppRequest) => requestQuitUsbApp(request));
+  ipcMain.handle('mtp:releaseUsbConnection', (_event, connectionId: string) => releaseUsbConnection(connectionId));
   ipcMain.handle('mtp:cancelFolderListing', () => cancelFolderListing());
   ipcMain.handle('local:listDirectory', (_event, directoryPath?: string, showHiddenFiles?: boolean) =>
     listLocalDirectory(directoryPath, showHiddenFiles === true)
