@@ -231,6 +231,8 @@ assert.match(
   'The phone-to-Mac button must count remembered Large files rows as transferable.'
 );
 const lookupBody = app.slice(app.indexOf('async function findRememberedRows'), app.indexOf('return foundRows;'));
+const main = await readFile(resolve(root, 'src/main/index.ts'), 'utf8');
+const native = await readFile(resolve(root, 'src/native/mtp-json.c'), 'utf8');
 assert.match(
   app,
   /async function copyRowsToMac[\s\S]*?\): Promise<void> \{[\s\S]*?largeFilesScan\.current\?\.stop\(\);[\s\S]*?const rememberedRows/,
@@ -238,8 +240,19 @@ assert.match(
 );
 assert.ok(lookupBody.length > 0, 'findRememberedRows must exist.');
 assert.ok(
-  !lookupBody.includes('cancelFolderListing'),
-  'The lookup must wait for a running listing: cancelling one mid-listing leaves the phone unresponsive.'
+  lookupBody.indexOf('cancelFolderListing') > 0 && lookupBody.indexOf('cancelFolderListing') < lookupBody.indexOf('findRememberedLargeFiles('),
+  'The lookup must stop a running scan listing first instead of waiting minutes behind it.'
 );
+assert.match(
+  main,
+  /activeSessionCommand\?\.name === 'list' && sessionProcess\) \{[\s\S]*?sessionProcess\.kill\('SIGUSR1'\);\s*\} else \{/,
+  'Stopping a folder listing must ask the helper to stop between objects, never kill the session mid-listing.'
+);
+assert.match(
+  native,
+  /for \(int index = 0; index < count; index \+= 1\) \{\s*if \(session_list_stop_requested\) \{/,
+  'The helper must check for a stop before each object it lists.'
+);
+assert.match(native, /stop_listing\.sa_flags = SA_RESTART;/, 'The stop signal must not interrupt reads from the app.');
 
 console.log('Large-file scan checks passed.');

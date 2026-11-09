@@ -19,6 +19,12 @@ const [main, app, readme, checklist, architecture] = await Promise.all([
 
 assert.match(main, /statfsSync,/, 'Main process must import statfsSync for native free-space checks.');
 assert.match(main, /function availableBytesForDirectory\(directory: string\)/, 'Main process must have a Mac free-space helper.');
+assert.match(
+  main,
+  /function availableBytesForDirectory[\s\S]*?volumeAvailableBytes\?\.\(directory\)[\s\S]*?statfsSync\(directory\)/,
+  'Free space must use the Finder figure (including purgeable space) and fall back to statfs only when it is unavailable.'
+);
+assert.match(main, /DOWNLOAD_FREE_SPACE_MARGIN_BYTES/, 'Downloads must keep a free-space margin for macOS.');
 assert.match(main, /statfsSync\(directory\)/, 'Free-space helper must read the target filesystem.');
 assert.match(main, /statSync\(directory\)[\s\S]*\.dev/, 'Free-space reservations must group folders by filesystem device.');
 assert.match(main, /function downloadSpaceError\([\s\S]*reservedBytesByVolume: Map<string, number>/, 'Mac-side phone transfers must reserve free space across a batch.');

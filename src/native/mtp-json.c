@@ -2,6 +2,7 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <math.h>
+#include <signal.h>
 #ifdef __APPLE__
 #include <CoreFoundation/CoreFoundation.h>
 #include <IOKit/IOKitLib.h>
@@ -1553,6 +1554,74 @@ static LIBMTP_file_t *ensure_session_fallback_files(LIBMTP_mtpdevice_t *device,
   return *fallback_files;
 }
 
+// Set by SIGUSR1 when the user stops a listing. It is checked between objects, when no USB
+// transfer is in flight, so the phone is ready for the next command; killing the helper
+// mid-listing left a Samsung phone unanswering until its USB mode was toggled.
+static volatile sig_atomic_t session_list_stop_requested = 0;
+
+static void request_session_list_stop(int signal_number) {
+  (void)signal_number;
+  session_list_stop_requested = 1;
+}
+
+// Same work as LIBMTP_Get_Files_And_Folders (all handles, then each object's metadata), but it
+// can stop between objects and reports progress once a second. Progress also keeps the app's
+// command timeout alive on folders with thousands of photos.
+static LIBMTP_file_t *list_folder_objects(LIBMTP_mtpdevice_t *device,
+                                          uint32_t storage_id,
+                                          uint32_t parent_id,
+                                          const char *request_id,
+                                          int *stopped) {
+  // Cleared at the start, so a stop that arrives after the previous listing ended is ignored.
+  session_list_stop_requested = 0;
+  uint32_t *handles = NULL;
+  int count = LIBMTP_Get_Children(device, storage_id, parent_id, &handles);
+  if (count <= 0) {
+    return NULL;
+  }
+
+  LIBMTP_file_t *first = NULL;
+  LIBMTP_file_t *last = NULL;
+  time_t reported_at = time(NULL);
+  for (int index = 0; index < count; index += 1) {
+    if (session_list_stop_requested) {
+      *stopped = 1;
+      break;
+    }
+    LIBMTP_file_t *file = LIBMTP_Get_Filemetadata(device, handles[index]);
+    if (file != NULL) {
+      if (last == NULL) {
+        first = file;
+      } else {
+        last->next = file;
+      }
+      last = file;
+    }
+    time_t now = time(NULL);
+    if (now != reported_at) {
+      reported_at = now;
+      printf("{\"type\":\"list\",\"requestId\":");
+      json_string(request_id);
+      printf(",\"event\":\"progress\",\"sent\":%d,\"total\":%d,\"time\":%lld}\n",
+             index + 1,
+             count,
+             (long long)now);
+      fflush(stdout);
+    }
+  }
+  free(handles);
+
+  if (*stopped) {
+    while (first != NULL) {
+      LIBMTP_file_t *next = first->next;
+      LIBMTP_destroy_file_t(first);
+      first = next;
+    }
+    return NULL;
+  }
+  return first;
+}
+
 static uint32_t inferred_storage_id_for_write(LIBMTP_file_t *files) {
   uint32_t resolved_storage_id = 0;
   for (LIBMTP_file_t *file = files; file != NULL; file = file->next) {
@@ -2138,7 +2207,19 @@ static void session_list(const char *request_id,
                          uint32_t parent_id,
                          LIBMTP_file_t **fallback_files,
                          int *fallback_attempted) {
-  LIBMTP_file_t *files = LIBMTP_Get_Files_And_Folders(device, storage_id, parent_id);
+  int stopped = 0;
+  LIBMTP_file_t *files = list_folder_objects(device, storage_id, parent_id, request_id, &stopped);
+  if (stopped) {
+    printf("{\"type\":\"response\",\"requestId\":");
+    json_string(request_id);
+    printf(",\"ok\":false,\"cancelled\":true,\"state\":\"connected\",\"message\":\"Folder listing stopped.\",\"deviceIndex\":%d,\"storageId\":%u,\"parentId\":%u,\"objects\":[]}\n",
+           device_index,
+           storage_id,
+           parent_id);
+    LIBMTP_Clear_Errorstack(device);
+    fflush(stdout);
+    return;
+  }
   const char *list_error = files == NULL ? first_mtp_error_text(device) : NULL;
   if (files == NULL && is_inferred_samsung_storage(rawdevice, storage_id)) {
     ensure_session_fallback_files(device, request_id, fallback_files, fallback_attempted);
@@ -2574,6 +2655,13 @@ static int command_session(int argc, char **argv) {
 #endif
   printf("}\n");
   fflush(stdout);
+
+  struct sigaction stop_listing;
+  memset(&stop_listing, 0, sizeof(stop_listing));
+  stop_listing.sa_handler = request_session_list_stop;
+  sigemptyset(&stop_listing.sa_mask);
+  stop_listing.sa_flags = SA_RESTART;
+  sigaction(SIGUSR1, &stop_listing, NULL);
 
   char line[8192];
   while (fgets(line, sizeof(line), stdin) != NULL) {

@@ -152,6 +152,8 @@ export interface FolderListResult {
   connectionPhase?: MtpConnectionPhase;
   connectionIssue?: MtpConnectionIssue;
   fileAccessUnavailable?: boolean;
+  // The user stopped the listing; the phone and session are fine.
+  cancelled?: boolean;
   helperPath: string;
   logPath: string;
   stderr?: string;

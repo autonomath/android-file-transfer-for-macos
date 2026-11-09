@@ -174,6 +174,7 @@ interface FilePromiseDragAddon {
   ) => boolean;
   completePromise: (promiseId: string, error?: string) => boolean;
   failAll: (error?: string) => void;
+  volumeAvailableBytes?: (directory: string) => number | null;
 }
 
 interface PromisedDirectory {
@@ -1061,8 +1062,15 @@ function cancelFolderListing(): boolean {
   }
 
   if (canCancelCommand(activeSessionCommand)) {
-    appendLog(`user stopped active MTP ${activeSessionCommand?.name} command`);
-    destroyMtpSession(cancelError.message, true);
+    if (activeSessionCommand?.name === 'list' && sessionProcess) {
+      // The helper stops between objects and answers "cancelled"; the session stays open.
+      // Killing it mid-listing left the phone unanswering until its USB mode was toggled.
+      appendLog('user stopped the active MTP folder listing; the helper stops before the next object');
+      sessionProcess.kill('SIGUSR1');
+    } else {
+      appendLog(`user stopped active MTP ${activeSessionCommand?.name} command`);
+      destroyMtpSession(cancelError.message, true);
+    }
     stopped = true;
   }
 
@@ -2466,6 +2474,9 @@ async function listFolder(
       180_000,
       reportProgress
     );
+    if (result.cancelled) {
+      return helperMetadata({ ...result, connectionPhase: 'ready' }, lastSessionStderr);
+    }
     if (!result.ok && parentId === MTP_ROOT_PARENT_ID) {
       appendLog(
         `session root listing failed for ${deviceConnectionId}; keeping the persistent session open for an explicit storage retry`
@@ -3012,11 +3023,17 @@ function formatBytesForMessage(bytes: number): string {
 }
 
 function availableBytesForDirectory(directory: string): { bytes: number; volumeKey: string } {
-  const stats = statfsSync(directory);
   const directoryStats = statSync(directory);
-  const availableBlocks = Number(stats.bavail);
-  const blockSize = Number(stats.bsize);
-  const bytes = availableBlocks * blockSize;
+  // Finder's figure counts purgeable space macOS frees for user-initiated downloads; statfs does
+  // not, and reported 13 GB on a disk Finder showed with 74 GB available.
+  const finderBytes = loadFilePromiseDragAddon()?.volumeAvailableBytes?.(directory);
+  let bytes: number;
+  if (typeof finderBytes === 'number' && Number.isFinite(finderBytes) && finderBytes >= 0) {
+    bytes = finderBytes;
+  } else {
+    const stats = statfsSync(directory);
+    bytes = Number(stats.bavail) * Number(stats.bsize);
+  }
 
   if (!Number.isFinite(bytes) || bytes < 0) {
     throw new Error(`Unable to read free space for ${directory}.`);
@@ -3027,6 +3044,9 @@ function availableBytesForDirectory(directory: string): { bytes: number; volumeK
     volumeKey: String(directoryStats.dev)
   };
 }
+
+// macOS and other apps need room to keep working; a transfer must not fill a volume to the last gigabyte.
+const DOWNLOAD_FREE_SPACE_MARGIN_BYTES = 2 * 1024 * 1024 * 1024;
 
 function downloadSpaceError(
   job: TransferJob,
@@ -3039,7 +3059,7 @@ function downloadSpaceError(
   try {
     const available = availableBytesForDirectory(job.destinationDirectory);
     const alreadyReserved = reservedBytesByVolume.get(available.volumeKey) ?? 0;
-    const remainingBytes = Math.max(available.bytes - alreadyReserved, 0);
+    const remainingBytes = Math.max(available.bytes - alreadyReserved - DOWNLOAD_FREE_SPACE_MARGIN_BYTES, 0);
 
     if (job.size > remainingBytes) {
       const recovery = job.promiseId
@@ -3047,7 +3067,7 @@ function downloadSpaceError(
         : 'Choose another Mac folder or free space, then Retry.';
       return [
         'Not enough free space on the Mac.',
-        `${job.name} needs ${formatBytesForMessage(job.size)}, but this Mac volume has about ${formatBytesForMessage(remainingBytes)} free.`,
+        `${job.name} needs ${formatBytesForMessage(job.size)}, but this Mac volume has about ${formatBytesForMessage(remainingBytes)} free after keeping ${formatBytesForMessage(DOWNLOAD_FREE_SPACE_MARGIN_BYTES)} for macOS.`,
         recovery
       ].join(' ');
     }

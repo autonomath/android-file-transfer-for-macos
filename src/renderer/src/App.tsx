@@ -1160,6 +1160,8 @@ function LargeFilesBar({
   const [depth, setDepth] = useState<LargeFileScanDepth>('usual');
   const [scanning, setScanning] = useState(false);
   const [progress, setProgress] = useState<LargeFileScanUpdate | null>(null);
+  // Items listed so far in the folder being checked; a camera folder can hold tens of thousands.
+  const [folderItems, setFolderItems] = useState<{ sent: number; total: number } | null>(null);
   const [outcome, setOutcome] = useState<LargeFileScanResult | null>(null);
   const scanRun = useRef(0);
   const stopRequested = useRef(false);
@@ -1181,6 +1183,7 @@ function LargeFilesBar({
       onUpdate: (update) => {
         if (scanRun.current === run) {
           setProgress(update);
+          setFolderItems(null);
           if (update.entries) {
             onEntries(update.entries, false);
           }
@@ -1223,6 +1226,17 @@ function LargeFilesBar({
     []
   );
 
+  useEffect(() => {
+    if (!scanning) {
+      return undefined;
+    }
+    return window.mtp.onFolderListProgress((update) => {
+      if (update.deviceConnectionId === device.connectionId && update.total > 0) {
+        setFolderItems({ sent: update.sent, total: update.total });
+      }
+    });
+  }, [scanning, device.connectionId]);
+
   const visibleEntries = showHidden ? entries : entries.filter((entry) => !isHiddenLargeFile(entry));
   const hiddenCount = entries.length - visibleEntries.length;
   const hiddenNote = hiddenCount ? ` · ${hiddenCount} hidden not shown` : '';
@@ -1235,7 +1249,9 @@ function LargeFilesBar({
       ? 'Looking for large files'
       : `No files over ${threshold}${hiddenNote}`;
   const status = scanning
-    ? `Checking ${progress ? largeFileFolderLabel(progress.currentFolder) : 'the phone'} · ${pluralize(
+    ? `Checking ${progress ? largeFileFolderLabel(progress.currentFolder) : 'the phone'}${
+        folderItems ? ` (${folderItems.sent.toLocaleString()} of ${folderItems.total.toLocaleString()} items)` : ''
+      } · ${pluralize(
         progress?.foldersChecked ?? 0,
         'folder'
       )} checked${transfersActive ? ' · may pause while files copy' : ''}`
@@ -4632,11 +4648,13 @@ export function App(): JSX.Element {
     const source = device;
     setTransferNotice({
       phase: 'queued',
-      // Never cancel a running listing here: killing the session mid-listing leaves the phone unresponsive.
-      message: `Finding ${pluralize(rememberedRows.length, 'file')} on the phone. The scan is stopped; this starts once the phone finishes the folder it is listing.`
+      message: `Finding ${pluralize(rememberedRows.length, 'file')} on the phone...`
     });
     let result: Awaited<ReturnType<typeof findRememberedLargeFiles>>;
     try {
+      // The scan may be partway through a folder with thousands of photos. The helper stops it
+      // between objects and keeps the session, so the lookup starts right away.
+      await window.mtp.cancelFolderListing();
       result = await findRememberedLargeFiles(
         rememberedRows.flatMap((row) => (row.largeFile ? [row.largeFile] : [])),
         largeFileStorages(source),

@@ -524,12 +524,34 @@ Napi::Value RequestApplicationQuit(const Napi::CallbackInfo& info) {
   }
 }
 
+// The free space Finder shows: it includes purgeable space (caches, local snapshots) that macOS
+// frees when a user-initiated download needs it. statfs leaves that out and can report a near-full
+// disk with tens of gigabytes actually available. Returns null when macOS cannot say.
+Napi::Value VolumeAvailableBytes(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  if (info.Length() != 1 || !info[0].IsString()) {
+    Napi::TypeError::New(env, "volumeAvailableBytes requires a directory path").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  @autoreleasepool {
+    NSString* path = [NSString stringWithUTF8String:info[0].As<Napi::String>().Utf8Value().c_str()];
+    NSURL* url = [NSURL fileURLWithPath:path isDirectory:YES];
+    NSNumber* bytes = nil;
+    if (![url getResourceValue:&bytes forKey:NSURLVolumeAvailableCapacityForImportantUsageKey error:nil] ||
+        bytes == nil) {
+      return env.Null();
+    }
+    return Napi::Number::New(env, bytes.doubleValue);
+  }
+}
+
 Napi::Object Initialize(Napi::Env env, Napi::Object exports) {
   exports.Set("startDrag", Napi::Function::New(env, StartDrag));
   exports.Set("completePromise", Napi::Function::New(env, CompletePromise));
   exports.Set("failAll", Napi::Function::New(env, FailAll));
   exports.Set("atomicExchangePaths", Napi::Function::New(env, AtomicExchangePaths));
   exports.Set("requestApplicationQuit", Napi::Function::New(env, RequestApplicationQuit));
+  exports.Set("volumeAvailableBytes", Napi::Function::New(env, VolumeAvailableBytes));
   return exports;
 }
 
