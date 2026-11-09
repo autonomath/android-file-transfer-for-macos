@@ -169,7 +169,7 @@ npm run mtp:smoke -- --timeout-ms=300000 --min-size=10000000
 
 ## Respectful USB conflict recovery
 
-- On a dedicated test device, verify Keep waiting leaves all apps running while checks continue automatically.
+- On a dedicated test device, verify that leaving the conflict panel open keeps all apps running while checks continue automatically.
 - A verified Google Drive client must show the sync and cloud-only-file impact before Request Google Drive to quit. Other clients must explain possible imports and unsaved work.
 - Click Request Quit in a controlled fixture. The app should receive its normal macOS Quit request and can show a save prompt or decline. The transfer app must never escalate to force-quit, and must report delivery rather than claim the other app has exited.
 - Change the USB attachment, camera-service PID, or client process before clicking an old Quit offer. Nothing should be closed.

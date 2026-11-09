@@ -2626,7 +2626,6 @@ button {
 
 .usb-conflict { width: min(640px, 100%); }
 .connection-gate-copy .usb-conflict-assurance { font-size: 14px; color: var(--ink); }
-.usb-conflict-wait { margin-top: 20px; padding: 10px 28px; min-height: 40px; }
 .usb-conflict-apps { margin-top: 26px; text-align: left; }
 .usb-conflict-app {
   padding: 18px 20px;

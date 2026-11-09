@@ -32,13 +32,6 @@ export function UsbConflictPanel({ phoneName, conflict, requestQuit }: {
         We’ll keep checking and connect when it’s available.
       </p>
       <p className="usb-conflict-assurance">Nothing will be closed automatically.</p>
-      <button
-        type="button"
-        className="primary-button usb-conflict-wait"
-        onClick={() => setFeedback('Still waiting. All other apps have been left open; we’ll connect when the phone is available.')}
-      >
-        Keep waiting
-      </button>
       {conflict?.apps.length ? (
         <div className="usb-conflict-apps">
           {conflict.apps.some((client) => !client.verified) ? (
