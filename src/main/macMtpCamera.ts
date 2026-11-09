@@ -94,10 +94,11 @@ function appBundle(executable: string | undefined): { appName: string; bundlePat
 // A client is verified only from the currently owning daemon, records since the
 // phone's latest attachment at its USB location (no other device after it), and a
 // still-running client with a matching executable. The phone may have used other
-// ports earlier in the daemon's life; those records cannot verify a client.
-// Otherwise the daemon's other live clients are possible causes, and with no client
-// records at all (for example, rotated out of a long-lived daemon's log), open apps
-// known to use phones are.
+// ports earlier in the daemon's life; those records cannot verify a client. A
+// long-lived daemon's registration records rotate out of the log, so a request for
+// this attachment from an open app known to use phones also verifies it. Otherwise
+// the daemon's other live clients are possible causes, and with no client records at
+// all, open apps known to use phones are.
 export function findMacCameraClients(
   log: string,
   owner: MacMtpCameraOwner,
@@ -107,6 +108,14 @@ export function findMacCameraClients(
   const devices = lines.map((line) => line.match(/New Device: LOC:(\d+)/)?.[1]);
   const attached = devices.lastIndexOf(String(owner.locationId));
   const sinceAttached = attached < 0 || devices.slice(attached + 1).some(Boolean) ? [] : lines.slice(attached);
+  // Apps that requested this attachment and have not released the daemon since.
+  const requested = new Set<string>();
+  for (const line of sinceAttached) {
+    const request = line.match(/requestStart \| Process: ([\w.-]+),/)?.[1];
+    const release = line.match(/PTPCameraDevice\s*\|\s*-\s*\d+-([\w.-]+):/)?.[1];
+    if (request) requested.add(request);
+    if (release) requested.delete(release);
+  }
   const clients = new Map<number, MacCameraClient>();
   let sawClientRecords = false;
   for (const line of lines) {
@@ -119,19 +128,19 @@ export function findMacCameraClients(
     const bundle = appBundle(processes.get(pid));
     const appName = cameraClientNames[bundleId] ?? bundle?.appName;
     if (!bundle || bundle.appName !== appName) continue;
-    const verified = sinceAttached.some((entry) => entry.includes(`requestStart | Process: ${bundleId},`));
-    clients.set(pid, { pid, bundleId, appName, bundlePath: bundle.bundlePath, verified });
+    clients.set(pid, { pid, bundleId, appName, bundlePath: bundle.bundlePath, verified: requested.has(bundleId) });
   }
   const registered = [...clients.values()];
   if (registered.some((client) => client.verified)) return registered.filter((client) => client.verified);
-  if (sawClientRecords) return registered;
   const open = new Map<string, MacCameraClient>();
   for (const [pid, executable] of [...processes].sort(([left], [right]) => left - right)) {
     const bundle = appBundle(executable);
     const bundleId = Object.keys(cameraClientNames).find((id) => cameraClientNames[id] === bundle?.appName);
-    if (bundle && bundleId && !open.has(bundleId)) open.set(bundleId, { pid, bundleId, ...bundle, verified: false });
+    if (bundle && bundleId && !open.has(bundleId)) open.set(bundleId, { pid, bundleId, ...bundle, verified: requested.has(bundleId) });
   }
-  return [...open.values()];
+  const openApps = [...open.values()];
+  if (openApps.some((client) => client.verified)) return openApps.filter((client) => client.verified);
+  return sawClientRecords ? registered : openApps;
 }
 
 export interface MacCameraConflictSnapshot {

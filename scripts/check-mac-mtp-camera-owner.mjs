@@ -94,6 +94,8 @@ const client = { pid: 201, bundleId: 'com.google.drivefs', appName: 'Google Driv
 const suspect = { ...client, verified: false };
 assert.deepEqual(findMacCameraClients(log, owner, processes), [client]);
 assert.deepEqual(findMacCameraClients(log + '\nptpcamerad[101:a] PTPCameraDevice | - 201-com.google.drivefs:[00001]', owner, processes), [], 'A client that released its camera session must not be offered Quit even when the app is still running.');
+const rotated = log.split('\n').filter((line) => !line.includes('| +')).join('\n');
+assert.deepEqual(findMacCameraClients(rotated, owner, processes), [client], 'A request for this attachment confirms an open known app after its registration rotated out of the log.');
 assert.deepEqual(findMacCameraClients(log, { ...owner, pid: 102 }, processes), [suspect], 'Without client records for the owning daemon, open apps that use phones are possible causes.');
 assert.deepEqual(findMacCameraClients(log, { ...owner, locationId: 9999 }, processes), [suspect], 'A registered client that cannot be matched to this phone is only a possible cause.');
 assert.deepEqual(findMacCameraClients(log, owner, new Map()), [], 'Quit clients must not be blamed from old logs.');
