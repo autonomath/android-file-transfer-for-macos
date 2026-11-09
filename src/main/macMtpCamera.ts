@@ -84,9 +84,10 @@ export function cameraProcessAgeSeconds(elapsed: string): number | null {
   return Number(match[1] || 0) * 86400 + Number(match[2] || 0) * 3600 + Number(match[3]) * 60 + Number(match[4]);
 }
 
-// Attribution is conservative: only the currently owning daemon, a single
-// matching USB location, and a still-running client with a matching executable.
-// A requestStart line on its own says nothing about exclusive USB ownership.
+// Attribution is conservative: only the currently owning daemon, records since
+// the phone's latest attachment at its USB location (no other device after it),
+// and a still-running client with a matching executable. The phone may have used
+// other ports earlier in the daemon's life; those records cannot name a client.
 export function findMacCameraClients(
   log: string,
   owner: MacMtpCameraOwner,
@@ -94,11 +95,10 @@ export function findMacCameraClients(
 ): MacCameraClient[] {
   if (owner.locationId === undefined) return [];
   const lines = log.split('\n').filter((line) => line.includes(`ptpcamerad[${owner.pid}:`));
-  const locations = new Set(lines.flatMap((line) => {
-    const match = line.match(/New Device: LOC:(\d+)/);
-    return match ? [Number(match[1])] : [];
-  }));
-  if (locations.size !== 1 || !locations.has(owner.locationId)) return [];
+  const devices = lines.map((line) => line.match(/New Device: LOC:(\d+)/)?.[1]);
+  const attached = devices.lastIndexOf(String(owner.locationId));
+  if (attached < 0 || devices.slice(attached + 1).some(Boolean)) return [];
+  const sinceAttached = lines.slice(attached);
   const clients = new Map<number, MacCameraClient>();
   for (const line of lines) {
     const match = line.match(/PTPCameraDevice\s*\|\s*([+-])\s*(\d+)-([\w.-]+):/);
@@ -109,7 +109,7 @@ export function findMacCameraClients(
     const appName = cameraClientNames[bundleId];
     const executable = processes.get(pid);
     if (!appName || !executable?.includes(`/${appName}.app/Contents/MacOS/`)) continue;
-    if (!lines.some((entry) => entry.includes(`requestStart | Process: ${bundleId},`))) continue;
+    if (!sinceAttached.some((entry) => entry.includes(`requestStart | Process: ${bundleId},`))) continue;
     const bundlePath = executable.slice(0, executable.indexOf('.app/Contents/MacOS/') + 4);
     clients.set(pid, { pid, bundleId, appName, bundlePath });
   }

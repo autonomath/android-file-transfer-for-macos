@@ -98,6 +98,9 @@ assert.deepEqual(findMacCameraClients(log, { ...owner, locationId: 9999 }, proce
 assert.deepEqual(findMacCameraClients(log, owner, new Map()), [], 'Quit clients must not be blamed from old logs.');
 assert.deepEqual(findMacCameraClients(log, owner, new Map([[201, '/usr/bin/unrelated']])), [], 'A reused PID is not the old client.');
 assert.deepEqual(findMacCameraClients(log + '\nptpcamerad[101:a] New Device: LOC:5678', owner, processes), [], 'Do not attribute an ambiguous multi-camera log.');
+const earlierPort = log.replace('LOC:1234', 'LOC:5678');
+assert.deepEqual(findMacCameraClients(earlierPort + '\nptpcamerad[101:a] New Device: LOC:1234\nptpcamerad[101:a] requestStart | Process: com.google.drivefs, Request Order Ascending: NO', owner, processes), [client], 'A phone moved from another USB port is attributed from its latest attachment.');
+assert.deepEqual(findMacCameraClients(earlierPort + '\nptpcamerad[101:a] New Device: LOC:1234', owner, processes), [], 'A request from before the latest attachment cannot name the client.');
 assert.equal(findMacMtpCameraOwner(sample.replace('"USB Serial Number" = "SYNTHETIC-MTP-0001"', ''), {
   vendorId: 1256, productId: 26720, serial: 'SYNTHETIC-MTP-0001'
 }), null, 'Do not release an interface with no matching serial.');
