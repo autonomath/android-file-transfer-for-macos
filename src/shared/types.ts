@@ -235,6 +235,11 @@ export interface TrashLocalItemsResult {
   failures: TrashLocalItemFailure[];
 }
 
+export interface RemoveEmptyLocalFoldersResult {
+  removedPaths: string[];
+  kept: Array<{ path: string; message: string }>;
+}
+
 export interface TransferRequest {
   deviceIndex: number;
   deviceConnectionId: string;
@@ -320,6 +325,8 @@ export interface DeletePhoneItemsRequest {
   deviceIndex: number;
   deviceConnectionId: string;
   targets: PhoneMutationTarget[];
+  // Source folders a confirmed Move emptied: no second dialog, and the phone deletes each only if it is empty.
+  emptyFoldersOnly?: boolean;
 }
 
 export interface DeletePhoneItemFailure {
@@ -535,6 +542,7 @@ export interface MtpApi {
   createLocalFolder: (request: CreateLocalFolderRequest) => Promise<LocalMutationResult>;
   renameLocalItem: (request: RenameLocalItemRequest) => Promise<LocalMutationResult>;
   trashLocalItems: (request: TrashLocalItemsRequest) => Promise<TrashLocalItemsResult>;
+  removeEmptyLocalFolders: (paths: string[]) => Promise<RemoveEmptyLocalFoldersResult>;
   setLocalModifiedTime: (path: string, modified: number) => Promise<LocalModifiedTimeResult>;
   getCommonMacFolders: () => Promise<CommonMacFolder[]>;
   chooseDestination: () => Promise<DestinationResult>;

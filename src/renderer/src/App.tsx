@@ -192,6 +192,8 @@ interface ConnectionStageItem {
 interface PhoneDownloadPlan {
   requests: TransferRequest[];
   directories: PlannedLocalDirectory[];
+  // Phone folders walked for this plan, parents first; a Move removes them once they are empty.
+  sourceFolders: PhoneMutationTarget[];
 }
 
 interface PhoneDownloadPlanningProgress {
@@ -214,7 +216,12 @@ interface PhoneUploadPlan {
   requests: UploadRequest[];
   folderCount: number;
   conflictCount: number;
+  sourceFolders: string[];
 }
+
+type MoveFolderCleanup =
+  | { side: 'phone'; deviceIndex: number; deviceConnectionId: string; folders: PhoneMutationTarget[] }
+  | { side: 'mac'; folders: string[] };
 
 interface LocalCrumb {
   label: string;
@@ -1416,6 +1423,8 @@ export function App(): JSX.Element {
   const forgottenObjectIds = useRef(new Set<number>());
   // Phone folders changed by transfers; re-listed once the queue drains so listings never wait in line with copies.
   const stalePhoneFolderKeys = useRef(new Set<string>());
+  // Source folders of confirmed Moves, removed (when empty) once the queue drains.
+  const pendingMoveCleanups = useRef<MoveFolderCleanup[]>([]);
   // Remembered files looked up before the scan reached them, by path; null means no longer on the phone.
   // The scan reports such files from its starting memory until it lists their folder, so these win.
   const largeFileLookups = useRef(new Map<string, LargeFileEntry | null>());
@@ -1634,18 +1643,8 @@ export function App(): JSX.Element {
     selectedLocalEntries.length === 1 && selectedLocalEntries[0].kind === 'folder' ? selectedLocalEntries[0].path : '';
   const macDestinationLabel = folderLabelForPath(macTargetFolder || localPath || destination);
   const phoneDestinationLabel = location.storageId === null ? 'Phone folder' : currentFolderName;
-  const phoneSelectionIsFilesOnly =
-    selectedDownloadRows.length > 0 && selectedDownloadRows.every((row) => row.kind === 'file');
-  const macSelectionIsFilesOnly =
-    selectedLocalEntries.length > 0 && selectedLocalEntries.every((entry) => entry.kind === 'file');
-  const canRunPhoneTransfer =
-    selectedDownloadRows.length > 0 &&
-    hasDevice &&
-    (phoneTransferOperation === 'copy' || phoneSelectionIsFilesOnly);
-  const canRunMacTransfer =
-    selectedLocalEntries.length > 0 &&
-    canUploadToCurrentFolder &&
-    (macTransferOperation === 'copy' || macSelectionIsFilesOnly);
+  const canRunPhoneTransfer = selectedDownloadRows.length > 0 && hasDevice;
+  const canRunMacTransfer = selectedLocalEntries.length > 0 && canUploadToCurrentFolder;
   const phoneMutationBlocked =
     phoneMutationBusy ||
     phoneDownloadPlanning !== null ||
@@ -2468,11 +2467,12 @@ export function App(): JSX.Element {
     operation: TransferOperation = 'copy'
   ): Promise<PhoneUploadPlan> {
     if (!device) {
-      return { requests: [], folderCount: 0, conflictCount: 0 };
+      return { requests: [], folderCount: 0, conflictCount: 0, sourceFolders: [] };
     }
 
     const activeDevice = device;
     const requests: UploadRequest[] = [];
+    const sourceFolders: string[] = [];
     const visitedFolders = new Set<string>();
     const phoneFolderObjects = new Map<number, MtpObject[]>();
     const reservedPhoneNames = new Map<number, Set<string>>();
@@ -2624,12 +2624,17 @@ export function App(): JSX.Element {
       if (folderId === null) {
         return;
       }
-      const localFolder = await window.mtp.listLocalDirectory(entry.path, macShowHiddenFiles);
+      sourceFolders.push(entry.path);
+      // A Move must take hidden files too, or the source folder can never empty out.
+      const localFolder = await window.mtp.listLocalDirectory(entry.path, macShowHiddenFiles || operation === 'move');
       if (!localFolder.ok) {
         throw new Error(localFolder.message || `Could not read ${entry.name} on the Mac.`);
       }
 
       for (const child of localFolder.entries) {
+        if (operation === 'move' && child.name === '.DS_Store') {
+          continue;
+        }
         await collect(child, folderId, depth + 1);
       }
     }
@@ -2638,7 +2643,7 @@ export function App(): JSX.Element {
       await collect(entry, parentId);
     }
 
-    return { requests, folderCount, conflictCount };
+    return { requests, folderCount, conflictCount, sourceFolders };
   }
 
   async function copyLocalFilesToPhone(
@@ -2657,14 +2662,6 @@ export function App(): JSX.Element {
       return;
     }
 
-    if (operation === 'move' && fileEntries.some((entry) => entry.kind !== 'file')) {
-      setTransferNotice({
-        phase: 'failed',
-        message: 'Move works with files only. Choose Copy for folders.'
-      });
-      return;
-    }
-
     const storageId = location.storageId;
     if (storageId === null) {
       return;
@@ -2679,7 +2676,7 @@ export function App(): JSX.Element {
     }
 
     try {
-      const { requests, folderCount, conflictCount } = await planLocalEntriesForUpload(
+      const { requests, folderCount, conflictCount, sourceFolders } = await planLocalEntriesForUpload(
         fileEntries,
         storageId,
         location.folderId,
@@ -2729,6 +2726,9 @@ export function App(): JSX.Element {
         incompatibleCount
       );
       setJobs((currentJobs) => mergeTransferJobs(currentJobs, queued));
+      if (operation === 'move' && sourceFolders.length && queued.length) {
+        pendingMoveCleanups.current.push({ side: 'mac', folders: [...sourceFolders].reverse() });
+      }
       setTransferNotice({
         phase: queued.length ? 'queued' : 'failed',
         message: queued.length
@@ -4064,25 +4064,65 @@ export function App(): JSX.Element {
   }, [device?.connectionId, localPath, location.folderId, location.storageId]);
 
   useEffect(() => {
-    if (queueSummary.cancellable > 0 || !stalePhoneFolderKeys.current.size) {
+    if (queueSummary.cancellable > 0 || (!stalePhoneFolderKeys.current.size && !pendingMoveCleanups.current.length)) {
       return;
     }
-    const keys = stalePhoneFolderKeys.current;
-    stalePhoneFolderKeys.current = new Set();
-    // Folders the user left are dropped from the cache so the next visit lists them fresh.
-    setFolderCache((cache) => {
-      const next = { ...cache };
-      keys.forEach((key) => {
-        if (key !== currentFolderKey) {
-          delete next[key];
-        }
+    const cleanups = pendingMoveCleanups.current.splice(0);
+    void (async () => {
+      for (const cleanup of cleanups) {
+        await removeEmptiedMoveFolders(cleanup);
+      }
+      const keys = stalePhoneFolderKeys.current;
+      stalePhoneFolderKeys.current = new Set();
+      // Folders the user left are dropped from the cache so the next visit lists them fresh.
+      setFolderCache((cache) => {
+        const next = { ...cache };
+        keys.forEach((key) => {
+          if (key !== currentFolderKey) {
+            delete next[key];
+          }
+        });
+        return next;
       });
-      return next;
-    });
-    if (currentFolderKey && keys.has(currentFolderKey) && location.storageId !== null) {
-      void loadFolder(location.storageId, location.folderId, true);
-    }
+      if (currentFolderKey && keys.has(currentFolderKey) && location.storageId !== null) {
+        void loadFolder(location.storageId, location.folderId, true);
+      }
+    })();
   }, [queueSummary.cancellable, currentFolderKey]);
+
+  // Runs after the queue drains, deepest folder first. Main and the phone keep any folder that is not empty,
+  // so a file whose move failed keeps its folder (and every folder above it).
+  async function removeEmptiedMoveFolders(cleanup: MoveFolderCleanup): Promise<void> {
+    const kept: string[] = [];
+    if (cleanup.side === 'mac') {
+      const result = await window.mtp.removeEmptyLocalFolders(cleanup.folders);
+      result.kept.forEach((folder) => kept.push(`${fileNameFromPath(folder.path)}: ${folder.message}`));
+      if (localPath) {
+        void loadLocalDirectory(localPath);
+      }
+    } else {
+      for (let start = 0; start < cleanup.folders.length; start += 1000) {
+        const batch = cleanup.folders.slice(start, start + 1000);
+        const result = await window.mtp.deletePhoneItems({
+          deviceIndex: cleanup.deviceIndex,
+          deviceConnectionId: cleanup.deviceConnectionId,
+          targets: batch,
+          emptyFoldersOnly: true
+        });
+        forgetPhoneObjects(batch.filter((target) => result.deletedObjectIds.includes(target.objectId)));
+        result.failures.forEach((failure) => kept.push(`${failure.target.name}: ${failure.message}`));
+        if (!result.ok && !result.failures.length) {
+          kept.push(result.message);
+        }
+      }
+    }
+    if (kept.length) {
+      setTransferNotice({
+        phase: 'failed',
+        message: `${kept.length} moved ${kept.length === 1 ? 'folder was' : 'folders were'} kept on the ${cleanup.side === 'mac' ? 'Mac' : 'phone'}. ${kept[0]}`
+      });
+    }
+  }
 
   useEffect(() => {
     return window.mtp.onPhoneFilePromiseDragEvent((event) => {
@@ -4489,20 +4529,12 @@ export function App(): JSX.Element {
       return;
     }
 
-    if (operation === 'move' && validRows.some((row) => row.kind !== 'file')) {
-      setTransferNotice({
-        phase: 'failed',
-        message: 'Move works with files only. Choose Copy for folders.'
-      });
-      return;
-    }
-
     const destinationDirectory = await chooseDestination();
     if (!destinationDirectory) {
       return;
     }
 
-    let plan: PhoneDownloadPlan = { requests: [], directories: [] };
+    let plan: PhoneDownloadPlan = { requests: [], directories: [], sourceFolders: [] };
     const includesFolder = validRows.some((row) => row.kind === 'folder');
     phoneDownloadPlanningCancelRequested.current = false;
     if (includesFolder) {
@@ -4613,6 +4645,14 @@ export function App(): JSX.Element {
       queueResult.skippedCount
     );
     setJobs((currentJobs) => mergeTransferJobs(currentJobs, queued));
+    if (operation === 'move' && plan.sourceFolders.length && queued.length) {
+      pendingMoveCleanups.current.push({
+        side: 'phone',
+        deviceIndex: sourceDeviceIndex,
+        deviceConnectionId: sourceDeviceConnectionId,
+        folders: [...plan.sourceFolders].reverse()
+      });
+    }
     setTransferNotice({
       phase: failedCount && !queuedCount ? 'failed' : 'queued',
       message:
@@ -4764,11 +4804,12 @@ export function App(): JSX.Element {
     operation: TransferOperation = 'copy'
   ): Promise<PhoneDownloadPlan> {
     if (typeof sourceDeviceIndex !== 'number' || !sourceDeviceConnectionId) {
-      return { requests: [], directories: [] };
+      return { requests: [], directories: [], sourceFolders: [] };
     }
 
     const deviceIndex = sourceDeviceIndex;
     const planned: TransferRequest[] = [];
+    const sourceFolders: PhoneMutationTarget[] = [];
     const directoryMap = new Map<string, number>();
     let plannedFiles = 0;
     let plannedFolders = 0;
@@ -4815,6 +4856,13 @@ export function App(): JSX.Element {
       plannedFolders += 1;
       reportProgress(object.name);
       directoryMap.set(folderDirectory, object.modified);
+      sourceFolders.push({
+        objectId: object.id,
+        storageId: object.storageId,
+        parentId: object.parentId,
+        name: object.name,
+        kind: 'folder'
+      });
       const result = await window.mtp.listFolder(
         deviceIndex,
         sourceDeviceConnectionId,
@@ -4842,7 +4890,8 @@ export function App(): JSX.Element {
 
     return {
       requests: planned,
-      directories: Array.from(directoryMap, ([path, modified]) => ({ path, modified }))
+      directories: Array.from(directoryMap, ([path, modified]) => ({ path, modified })),
+      sourceFolders
     };
   }
 
@@ -5091,8 +5140,6 @@ export function App(): JSX.Element {
     // Delete needs a phone handle, which remembered Large files rows do not have yet; it skips them.
     const phoneLiveActionRows = phoneActionRows.filter((row) => row.object);
     const localActionCount = localActionEntries.length;
-    const phoneActionFilesOnly = phoneActionRows.length > 0 && phoneActionRows.every((row) => row.kind === 'file');
-    const localActionFilesOnly = localActionEntries.length > 0 && localActionEntries.every((entry) => entry.kind === 'file');
 
     if (contextMenu.pane === 'phone') {
       return (
@@ -5136,8 +5183,7 @@ export function App(): JSX.Element {
           <button
             type="button"
             role="menuitem"
-            disabled={!phoneActionFilesOnly || !hasDevice}
-            title={phoneActionCount > 0 && !phoneActionFilesOnly ? 'Move works with files only.' : undefined}
+            disabled={!phoneActionCount || !hasDevice}
             onClick={() =>
               runContextMenuAction(() =>
                 void copyRowsToMac(
@@ -5246,8 +5292,7 @@ export function App(): JSX.Element {
         <button
           type="button"
           role="menuitem"
-          disabled={!localActionFilesOnly || !canUploadToCurrentFolder}
-          title={localActionCount > 0 && !localActionFilesOnly ? 'Move works with files only.' : undefined}
+          disabled={!localActionCount || !canUploadToCurrentFolder}
           onClick={() =>
             runContextMenuAction(() => void copyLocalFilesToPhone(localActionEntries, 'move'))
           }
@@ -6147,7 +6192,7 @@ export function App(): JSX.Element {
                 type="button"
                 className={phoneTransferOperation === 'move' ? 'active' : ''}
                 aria-pressed={phoneTransferOperation === 'move'}
-                title="Move files only. The source is deleted after the destination copy is verified."
+                title="Each source file is deleted after its copy is verified; emptied folders are removed."
                 onClick={() => setPhoneTransferOperation('move')}
               >
                 Move
@@ -6157,11 +6202,7 @@ export function App(): JSX.Element {
               type="button"
               className="primary-button transfer-destination-button"
               disabled={!canRunPhoneTransfer}
-              title={
-                phoneTransferOperation === 'move' && selectedDownloadRows.length > 0 && !phoneSelectionIsFilesOnly
-                  ? 'Move works with files only. Choose Copy for folders.'
-                  : `${phoneTransferOperation === 'move' ? 'Move' : 'Copy'} selected phone files to ${macTargetFolder || localPath || destination || 'a Mac folder'}`
-              }
+              title={`${phoneTransferOperation === 'move' ? 'Move' : 'Copy'} selected phone items to ${macTargetFolder || localPath || destination || 'a Mac folder'}`}
               aria-label={`${phoneTransferOperation === 'move' ? 'Move' : 'Copy'} selected phone files to Mac folder ${macDestinationLabel}`}
               onClick={() => void copySelectedToMac(phoneTransferOperation)}
             >
@@ -6170,11 +6211,7 @@ export function App(): JSX.Element {
               <span>{macDestinationLabel}</span>
             </button>
             <span className="transfer-bar-status" title={`${phoneSelectionSummary}. ${phoneSelectionGuidance}`}>
-              {phoneTransferOperation === 'move' && selectedDownloadRows.length > 0 && !phoneSelectionIsFilesOnly
-                ? 'Move supports files only; folders can still be copied.'
-                : selectedRows.length
-                  ? phoneSelectionSummary
-                  : 'Select phone files or folders'}
+              {selectedRows.length ? phoneSelectionSummary : 'Select phone files or folders'}
             </span>
           </div>
 
@@ -6570,7 +6607,6 @@ export function App(): JSX.Element {
                 title={transferLogOpen ? 'Hide transfer list' : `Show all ${queueSummary.total} transfers. ${queueStatusDetail}`}
                 onClick={() => setTransferLogOpen((open) => !open)}
               >
-                {transferLogOpen ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
                 <strong>
                   {queueSummary.activeTransfers
                     ? 'Transferring'
@@ -6611,6 +6647,15 @@ export function App(): JSX.Element {
                     <span>Cancel All</span>
                   </button>
                 )}
+                <button
+                  type="button"
+                  className="text-button"
+                  aria-expanded={transferLogOpen}
+                  onClick={() => setTransferLogOpen((open) => !open)}
+                >
+                  {transferLogOpen ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
+                  <span>{transferLogOpen ? 'Hide list' : `Show all ${queueSummary.total}`}</span>
+                </button>
               </div>
               {queueSummary.cancellable > 0 && (
                 <div
@@ -6921,7 +6966,7 @@ export function App(): JSX.Element {
                     type="button"
                     className={macTransferOperation === 'move' ? 'active' : ''}
                     aria-pressed={macTransferOperation === 'move'}
-                    title="Move files only. The Mac source is deleted after the phone copy is verified."
+                    title="Each Mac file is deleted after its phone copy is verified; emptied folders are removed."
                     onClick={() => setMacTransferOperation('move')}
                   >
                     Move
@@ -6930,11 +6975,7 @@ export function App(): JSX.Element {
                 <button
                   className="primary-button local-copy-button transfer-destination-button"
                   disabled={!canRunMacTransfer}
-                  title={
-                    macTransferOperation === 'move' && selectedLocalEntries.length > 0 && !macSelectionIsFilesOnly
-                      ? 'Move works with files only. Choose Copy for folders.'
-                      : `${macTransferOperation === 'move' ? 'Move' : 'Copy'} selected Mac files to ${phoneDestinationLabel}`
-                  }
+                  title={`${macTransferOperation === 'move' ? 'Move' : 'Copy'} selected Mac items to ${phoneDestinationLabel}`}
                   aria-label={`${macTransferOperation === 'move' ? 'Move' : 'Copy'} selected Mac files to phone folder ${phoneDestinationLabel}`}
                   onClick={() => void copyLocalFilesToPhone(selectedLocalEntries, macTransferOperation)}
                 >
@@ -6943,11 +6984,7 @@ export function App(): JSX.Element {
                   <ArrowLeft size={14} aria-hidden="true" />
                 </button>
                 <span className="transfer-bar-status" title={localSelectionStatus}>
-                  {macTransferOperation === 'move' && selectedLocalEntries.length > 0 && !macSelectionIsFilesOnly
-                    ? 'Move supports files only; folders can still be copied.'
-                    : selectedLocalEntries.length
-                      ? localSelectionSummary
-                      : 'Select Mac files or folders'}
+                  {selectedLocalEntries.length ? localSelectionSummary : 'Select Mac files or folders'}
                 </span>
               </div>
 

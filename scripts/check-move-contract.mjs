@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { existsSync, lstatSync, renameSync } from 'node:fs';
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -37,7 +37,19 @@ assert.match(app, /macTransferOperation/);
 assert.match(app, /className="phone-path-bar"/);
 assert.match(app, /<ArrowRight[\s\S]*<Folder[\s\S]*macDestinationLabel/);
 assert.match(app, /phoneDestinationLabel[\s\S]*<ArrowLeft/);
-assert.match(app, /Move works with files only\. Choose Copy for folders\./);
+assert.doesNotMatch(app, /Move works with files only|Move supports files only/, 'Folders can be moved; the files-only limit is gone.');
+assert.match(app, /emptyFoldersOnly: true/, 'Phone folders a Move emptied must go through the empty-only delete.');
+assert.match(main, /request\.emptyFoldersOnly \? 'delete-empty-folder' : 'delete-item'/);
+assert.match(
+  main,
+  /!request\.emptyFoldersOnly && !\(await confirmPhoneDeletion\(targets\)\)/,
+  'Only emptied-folder cleanup may skip the delete dialog; the Move dialog already confirmed it.'
+);
+assert.match(
+  native,
+  /if \(require_empty\)[\s\S]*LIBMTP_Get_Children\(device, storage_id, object_id, &children\)[\s\S]*if \(count != 0\)[\s\S]*LIBMTP_Delete_Object/,
+  'Deleting an MTP folder can delete its contents, so the phone must report it empty right before deletion.'
+);
 assert.match(app, /startMoveDownloads\(plan\.requests\)/);
 assert.match(app, /startMoveUploads\(requests\)/);
 
@@ -117,7 +129,7 @@ const compiled = ts.transpileModule(localMoveSource, {
 const behaviorRoot = await mkdtemp(join(tmpdir(), 'android-file-transfer-for-macos-move-check-'));
 const compiledPath = join(behaviorRoot, 'localMoveSource.mjs');
 await writeFile(compiledPath, compiled);
-const { removeVerifiedLocalMoveSource } = await import(pathToFileURL(compiledPath).href);
+const { removeEmptyLocalFolders, removeVerifiedLocalMoveSource } = await import(pathToFileURL(compiledPath).href);
 
 function identityFor(path) {
   const stat = lstatSync(path);
@@ -164,6 +176,18 @@ try {
     'A replacement at the same path must not be deleted.'
   );
   assert.equal(await readFile(replaced, 'utf8'), 'replacement');
+
+  const emptied = join(behaviorRoot, 'emptied');
+  const emptiedChild = join(emptied, 'child');
+  const keptFolder = join(behaviorRoot, 'kept');
+  await mkdir(emptiedChild, { recursive: true });
+  await writeFile(join(emptiedChild, '.DS_Store'), '');
+  await mkdir(keptFolder);
+  await writeFile(join(keptFolder, 'failed-move.txt'), 'still here');
+  const cleanup = removeEmptyLocalFolders([emptiedChild, emptied, keptFolder]);
+  assert.deepEqual(cleanup.removedPaths, [emptiedChild, emptied], 'Emptied folders go deepest first; .DS_Store does not keep them.');
+  assert.equal(cleanup.kept.length, 1, 'A folder with anything left in it must be kept.');
+  assert.equal(await readFile(join(keptFolder, 'failed-move.txt'), 'utf8'), 'still here');
 } finally {
   await rm(behaviorRoot, { recursive: true, force: true });
 }

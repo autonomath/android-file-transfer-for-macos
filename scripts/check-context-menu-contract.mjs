@@ -76,8 +76,7 @@ assert.match(
 );
 assert.match(app, /copyRowsToMac\([\s\S]*phoneActionRows[\s\S]*'move'/, 'Phone context menu must reuse the verified Move path.');
 assert.match(app, /copyLocalFilesToPhone\(localActionEntries, 'move'\)/, 'Mac context menu must reuse the verified Move path.');
-assert.match(app, /phoneActionFilesOnly/, 'Phone folder selections must not enable Move.');
-assert.match(app, /localActionFilesOnly/, 'Mac folder selections must not enable Move.');
+assert.doesNotMatch(app, /phoneActionFilesOnly|localActionFilesOnly/, 'Folder selections can be moved like files.');
 assert.match(app, /window\.mtp\.revealInFinder\(localContextEntry\.path\)/, 'Mac context menu must reveal rows in Finder.');
 assert.match(app, /openRenamePhoneItemDialog\(phoneActionRows\[0\]\)/, 'Phone rename must use the guarded dialog.');
 assert.match(app, /deletePhoneRows\(phoneActionRows\)/, 'Phone delete must use the guarded main-process path.');

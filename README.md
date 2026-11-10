@@ -52,7 +52,7 @@ brew install --cask autonomath/tap/android-file-transfer-for-macos
 - Gives distinct guidance for a locked phone or Android Allow prompt.
 - Static startup and renderer-crash fallbacks prevent a bundle or display failure from leaving an empty white window.
 
-Phone rename and permanent delete verify the selected object's ID, storage, parent, kind, current name, and available file size/time immediately before changing it. Delete has no Trash or Undo and always requires a native confirmation. Uploads read from the same Mac file descriptor whose identity was queued, so a changed or swapped source is rejected. Same-name replacement is explicit: the new phone file uploads under a temporary name, is verified, and the old file remains under a backup name until the new name is verified. Folder Move is not offered.
+Phone rename and permanent delete verify the selected object's ID, storage, parent, kind, current name, and available file size/time immediately before changing it. Delete has no Trash or Undo and always requires a native confirmation. Uploads read from the same Mac file descriptor whose identity was queued, so a changed or swapped source is rejected. Same-name replacement is explicit: the new phone file uploads under a temporary name, is verified, and the old file remains under a backup name until the new name is verified. Folder Move moves every file inside the same verified way, then removes each source folder only once it is empty; a folder that still holds anything is kept.
 
 ## Requirements
 

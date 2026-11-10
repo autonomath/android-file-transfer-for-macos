@@ -50,7 +50,7 @@ import {
   publishTemporaryFile,
   replaceTemporaryFile
 } from './atomicDownload';
-import { removeVerifiedLocalMoveSource } from './localMoveSource';
+import { removeEmptyLocalFolders, removeVerifiedLocalMoveSource } from './localMoveSource';
 import { publishStagedPhoneReplacement } from './phoneReplacement';
 import {
   deviceConnectionId as buildDeviceConnectionId,
@@ -2571,7 +2571,7 @@ function phoneMutationUnavailableMessage(): string | null {
 async function runPhoneMutationCommand(
   deviceIndex: number,
   deviceConnectionId: string,
-  command: 'rename-item' | 'delete-item',
+  command: 'rename-item' | 'delete-item' | 'delete-empty-folder',
   args: string[]
 ): Promise<{ result: SessionPayload; stderr: string }> {
   const result = await runSessionCommand<SessionPayload>(
@@ -2736,11 +2736,14 @@ async function deletePhoneItems(request: DeletePhoneItemsRequest): Promise<Delet
       targets.push(target);
     }
   }
+  if (request.emptyFoldersOnly && targets.some((target) => target.kind !== 'folder')) {
+    return { ...fallback, message: 'Only emptied folders can be removed after a move.' };
+  }
   const unavailable = phoneMutationUnavailableMessage();
   if (unavailable) {
     return { ...fallback, message: unavailable };
   }
-  if (!(await confirmPhoneDeletion(targets))) {
+  if (!request.emptyFoldersOnly && !(await confirmPhoneDeletion(targets))) {
     return helperMetadata({
       ...fallback,
       confirmed: false,
@@ -2765,7 +2768,7 @@ async function deletePhoneItems(request: DeletePhoneItemsRequest): Promise<Delet
         const response = await runPhoneMutationCommand(
           request.deviceIndex,
           request.deviceConnectionId,
-          'delete-item',
+          request.emptyFoldersOnly ? 'delete-empty-folder' : 'delete-item',
           phoneMutationArgs(target)
         );
         stderr = response.stderr || stderr;
@@ -4188,7 +4191,7 @@ async function confirmFileMove(
   const detail = [
     `Each file will be copied to ${destinationLabel} and checked first.`,
     `Only after a file's destination copy is verified will its source be deleted from ${sourceLabel}.`,
-    'If copying, verification, or deletion fails, the source file is kept. Folders are copied, not moved.'
+    'If copying, verification, or deletion fails, the source file is kept. A moved folder is removed from the source once it is empty; a folder that still holds anything is kept.'
   ].join('\n\n');
   const options = {
     type: 'warning' as const,
@@ -5042,6 +5045,11 @@ app.whenReady().then(() => {
   ipcMain.handle('local:trashItems', (_event, request: TrashLocalItemsRequest) =>
     trashLocalItems(request)
   );
+  ipcMain.handle('local:removeEmptyFolders', (_event, paths: unknown) => {
+    const result = removeEmptyLocalFolders(paths);
+    result.removedPaths.forEach((folderPath) => appendLog(`emptied move source folder removed: ${folderPath}`));
+    return result;
+  });
   ipcMain.handle('local:setModifiedTime', (_event, localPath: string, modified: number) =>
     setLocalModifiedTime(localPath, modified)
   );

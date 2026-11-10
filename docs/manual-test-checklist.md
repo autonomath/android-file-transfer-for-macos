@@ -114,6 +114,7 @@ For an authorized Pixel 9 test device, identify it locally with `adb devices` an
 - Queue two or more copies, click Cancel All, and confirm queued/active jobs become canceled without opening another MTP session.
 - Click Clear Finished after completed/canceled/failed jobs exist; finished items are removed while active or queued jobs remain.
 - The transfer status strip under the phone file list stays one summary line plus a progress bar; clicking the summary expands the job list upward and clicking again collapses it.
+- Move a phone folder with a subfolder to the Mac, and a Mac folder to the phone: every file arrives, and each source folder disappears only after it is empty. Make one file fail (for example, no free space) and confirm its folder and the folders above it stay.
 - Start a large copy and cancel it; the queue shows canceled and the log shows the single MTP worker was stopped.
 - Quit the app after a normal phone-file session is open; confirm the log says `sent graceful quit to MTP session` instead of immediately killing the helper with `SIGTERM`.
 - Retry the canceled or failed copy; it queues again.

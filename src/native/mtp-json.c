@@ -2546,7 +2546,8 @@ static void session_delete_item(const char *request_id,
                                 int expected_size_available,
                                 uint64_t expected_modified,
                                 int expected_modified_available,
-                                const char *expected_name) {
+                                const char *expected_name,
+                                int require_empty) {
   LIBMTP_file_t *metadata = verified_phone_mutation_target(
       request_id,
       device,
@@ -2563,6 +2564,21 @@ static void session_delete_item(const char *request_id,
     return;
   }
   LIBMTP_destroy_file_t(metadata);
+
+  // Deleting an MTP folder can delete everything in it, so a moved-from folder goes only when the phone reports it empty.
+  if (require_empty) {
+    uint32_t *children = NULL;
+    int count = LIBMTP_Get_Children(device, storage_id, object_id, &children);
+    free(children);
+    if (count != 0) {
+      LIBMTP_Clear_Errorstack(device);
+      print_phone_mutation_failure(
+          request_id,
+          count > 0 ? "The folder still has items, so it was kept."
+                    : "The phone could not confirm the folder is empty, so it was kept.");
+      return;
+    }
+  }
 
   int result = LIBMTP_Delete_Object(device, object_id);
   if (result != 0) {
@@ -2814,7 +2830,9 @@ static int command_session(int argc, char **argv) {
       continue;
     }
 
-    if (strcmp(command, "rename-item") == 0 || strcmp(command, "delete-item") == 0) {
+    if (strcmp(command, "rename-item") == 0 || strcmp(command, "delete-item") == 0 ||
+        strcmp(command, "delete-empty-folder") == 0) {
+      int require_empty = strcmp(command, "delete-empty-folder") == 0;
       uint32_t object_id = 0;
       uint32_t storage_id = 0;
       uint32_t parent_id = 0;
@@ -2846,7 +2864,7 @@ static int command_session(int argc, char **argv) {
           ? !expected_size_available && !expected_modified_available
           : expected_size_available &&
             (!expected_modified_available || expected_modified > 0);
-      valid = valid && valid_file_metadata;
+      valid = valid && valid_file_metadata && (!require_empty || expected_folder);
       if (valid && new_name_token != NULL) {
         valid = decode_phone_item_name(new_name_token, 1, &new_name);
       }
@@ -2883,7 +2901,8 @@ static int command_session(int argc, char **argv) {
             expected_size_available,
             expected_modified,
             expected_modified_available,
-            expected_name);
+            expected_name,
+            require_empty);
       }
       free(expected_name);
       free(new_name);

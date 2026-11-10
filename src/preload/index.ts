@@ -45,6 +45,7 @@ const api: MtpApi = {
   createLocalFolder: (request: CreateLocalFolderRequest) => ipcRenderer.invoke('local:createFolder', request),
   renameLocalItem: (request: RenameLocalItemRequest) => ipcRenderer.invoke('local:renameItem', request),
   trashLocalItems: (request: TrashLocalItemsRequest) => ipcRenderer.invoke('local:trashItems', request),
+  removeEmptyLocalFolders: (paths: string[]) => ipcRenderer.invoke('local:removeEmptyFolders', paths),
   setLocalModifiedTime: (path: string, modified: number) =>
     ipcRenderer.invoke('local:setModifiedTime', path, modified),
   getCommonMacFolders: () => ipcRenderer.invoke('local:getCommonFolders'),
