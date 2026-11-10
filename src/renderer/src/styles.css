@@ -1305,9 +1305,7 @@ button {
 }
 
 .folder-summary-bar {
-  position: sticky;
-  top: 0;
-  z-index: 2;
+  /* Scrolls away with the rows: pinned at top 0 it covered the sticky column header. */
   display: flex;
   flex-wrap: wrap;
   align-items: center;
