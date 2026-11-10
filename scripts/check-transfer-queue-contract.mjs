@@ -33,6 +33,15 @@ assert.match(app, /const connectionStateClass =/, 'Top connection pill must deri
 assert.match(app, /queueSummary\.activeTransfers[\s\S]*'transfer-active'/, 'Top connection pill must show active transfers.');
 assert.match(app, /role="status"[\s\S]*aria-live="polite"/, 'Top connection pill must announce transfer-active state changes.');
 assert.match(app, /'Completed'/, 'Completed-only queues must be labeled as completed, not transferring.');
+const transferEventHandler = app.slice(app.indexOf('window.mtp.onTransferEvent('), app.indexOf('queueSummary.cancellable > 0 || !stalePhoneFolderKeys'));
+assert.ok(transferEventHandler.length > 0, 'Transfer event handler must remain present.');
+assert.doesNotMatch(transferEventHandler, /loadFolder\(/, 'A finished file must not re-list the phone folder; listings would queue behind every copy in a long batch.');
+assert.match(
+  app,
+  /queueSummary\.cancellable > 0 \|\| !stalePhoneFolderKeys\.current\.size[\s\S]*loadFolder\(location\.storageId, location\.folderId, true\)/,
+  'Phone folders changed by transfers must be re-listed once, after the queue drains.'
+);
+assert.match(app, /next\[key\] = \(next\[key\] \?\? \[\]\)\.filter\(\(item\) => !ids\.has\(item\.id\)\)/, 'Moved files must leave the open phone folder immediately, without a phone listing.');
 assert.match(
   app,
   /job\.status === 'active'\s*\? ` · \$\{formatBytes\(job\.speedBytesPerSecond\)\}\/s · ETA/,

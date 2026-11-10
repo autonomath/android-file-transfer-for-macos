@@ -1414,6 +1414,8 @@ export function App(): JSX.Element {
   const revealRowKey = useRef<string | null>(null);
   // Object IDs deleted or moved off the phone during this connection; a running scan may still report them.
   const forgottenObjectIds = useRef(new Set<number>());
+  // Phone folders changed by transfers; re-listed once the queue drains so listings never wait in line with copies.
+  const stalePhoneFolderKeys = useRef(new Set<string>());
   // Remembered files looked up before the scan reached them, by path; null means no longer on the phone.
   // The scan reports such files from its starting memory until it lists their folder, so these win.
   const largeFileLookups = useRef(new Map<string, LargeFileEntry | null>());
@@ -3993,7 +3995,7 @@ export function App(): JSX.Element {
         event.job.storageId === location.storageId &&
         event.job.parentId === location.folderId
       ) {
-        void loadFolder(location.storageId, location.folderId, true);
+        stalePhoneFolderKeys.current.add(folderKey(device.connectionId, location.storageId, location.folderId));
       }
       if (
         event.type === 'completed' &&
@@ -4023,7 +4025,7 @@ export function App(): JSX.Element {
         event.job.storageId === location.storageId &&
         event.job.parentId === location.folderId
       ) {
-        void loadFolder(location.storageId, location.folderId, true);
+        stalePhoneFolderKeys.current.add(folderKey(device.connectionId, location.storageId, location.folderId));
       }
       const { job } = event;
       if (
@@ -4060,6 +4062,27 @@ export function App(): JSX.Element {
       }
     });
   }, [device?.connectionId, localPath, location.folderId, location.storageId]);
+
+  useEffect(() => {
+    if (queueSummary.cancellable > 0 || !stalePhoneFolderKeys.current.size) {
+      return;
+    }
+    const keys = stalePhoneFolderKeys.current;
+    stalePhoneFolderKeys.current = new Set();
+    // Folders the user left are dropped from the cache so the next visit lists them fresh.
+    setFolderCache((cache) => {
+      const next = { ...cache };
+      keys.forEach((key) => {
+        if (key !== currentFolderKey) {
+          delete next[key];
+        }
+      });
+      return next;
+    });
+    if (currentFolderKey && keys.has(currentFolderKey) && location.storageId !== null) {
+      void loadFolder(location.storageId, location.folderId, true);
+    }
+  }, [queueSummary.cancellable, currentFolderKey]);
 
   useEffect(() => {
     return window.mtp.onPhoneFilePromiseDragEvent((event) => {
@@ -4722,7 +4745,9 @@ export function App(): JSX.Element {
       const next = { ...cache };
       for (const object of objects) {
         const key = folderKey(connectionId, object.storageId, object.parentId);
-        if (key !== openFolderKey) {
+        if (key === openFolderKey) {
+          next[key] = (next[key] ?? []).filter((item) => !ids.has(item.id));
+        } else {
           delete next[key];
         }
       }
