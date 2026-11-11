@@ -10,15 +10,10 @@ Android File Transfer for macOS is an Electron desktop app with three layers:
 
 ## MTP Bridge
 
-The native helper exposes one-shot diagnostic commands plus a long-lived session command:
+The native helper exposes a one-shot status command plus a long-lived session command:
 
 ```sh
 mtp-json status
-mtp-json inventory
-mtp-json list <device-index> <storage-id> <parent-id>
-mtp-json download <device-index> <object-id> <destination-path>
-mtp-json mkdir <device-index> <storage-id> <parent-id> <folder-name>
-mtp-json upload <device-index> <storage-id> <parent-id> <source-path>
 mtp-json session <device-index>
 ```
 
@@ -35,12 +30,12 @@ A Quit request carries only an opaque offer ID and USB connection ID from the re
 A camera-service request in the unified log is evidence of a client, not proof that the client reset the physical USB connection. USB ownership, session-open results, storage enumeration, and actual file reads are checked separately.
 
 
-The one-shot `inventory` command remains useful for diagnostics. Inventory reads storage metadata only. It does not recursively walk the full phone, because large Samsung-class media libraries can make a whole-device scan too slow for startup.
+The session `inventory` command reads storage metadata only. It does not recursively walk the full phone, because large Samsung-class media libraries can make a whole-device scan too slow for startup.
 
-Folder contents are loaded on demand with:
+Folder contents are loaded on demand with the session command:
 
 ```sh
-mtp-json list <device-index> <storage-id> <parent-id>
+list <request-id> <storage-id> <parent-id>
 ```
 
 `list` gets the folder's object handles with `LIBMTP_Get_Children`, then reads each object with `LIBMTP_Get_Filemetadata`, the same work `LIBMTP_Get_Files_And_Folders` does. Between objects it checks a stop flag set by SIGUSR1 and reports `sent`/`total` progress once a second, which also keeps the command timeout alive on folders with thousands of photos. A stopped listing answers `cancelled` and leaves the session open: no USB transfer is in flight between objects, whereas killing the helper mid-listing left a Samsung phone unanswering until its USB mode was toggled. It emits JSON objects with:
@@ -56,7 +51,7 @@ mtp-json list <device-index> <storage-id> <parent-id>
 
 Storage-root navigation uses libmtp's root parent ID `0xffffffff`.
 
-`download` calls `LIBMTP_Get_File_To_File` for one object ID and emits newline-delimited JSON progress events. `mkdir` calls `LIBMTP_Create_Folder` for non-destructive phone-side folder creation. Session `upload` commands carry the queued Mac device, inode, size, modification time, and change time. The helper opens that path once with `O_NOFOLLOW`, verifies the same identity with `fstat`, and gives the verified descriptor to `LIBMTP_Send_File_From_File_Descriptor`; a changed path cannot substitute different bytes during a queued upload. The helper verifies the returned destination metadata before a Mac source can be removed. Session uploads also receive an explicit UTF-8-hex destination name, so Keep Both and staged replacement still stream directly from the original Mac file. `rename-item` and `delete-item` fetch current metadata and require the object ID, storage, parent, kind, old name, file size, and available modification time to match the listed row before calling `LIBMTP_Set_File_Name` or `LIBMTP_Delete_Object`. The previous object-ID-only delete command no longer exists. Names use UTF-8 hex command arguments so whitespace cannot alter the line protocol. In app mode, these commands run inside the active `session` worker. The Electron main process owns cancellation by terminating that worker and waits for the old helper to exit before queueing another session.
+Session `download` calls `LIBMTP_Get_File_To_File` for one object ID and emits newline-delimited JSON progress events. Session `mkdir` calls `LIBMTP_Create_Folder` for non-destructive phone-side folder creation. Session `upload` commands carry the queued Mac device, inode, size, modification time, and change time. The helper opens that path once with `O_NOFOLLOW`, verifies the same identity with `fstat`, and gives the verified descriptor to `LIBMTP_Send_File_From_File_Descriptor`; a changed path cannot substitute different bytes during a queued upload. The helper verifies the returned destination metadata before a Mac source can be removed. Session uploads also receive an explicit UTF-8-hex destination name, so Keep Both and staged replacement still stream directly from the original Mac file. `rename-item` and `delete-item` fetch current metadata and require the object ID, storage, parent, kind, old name, file size, and available modification time to match the listed row before calling `LIBMTP_Set_File_Name` or `LIBMTP_Delete_Object`. The previous object-ID-only delete command no longer exists. Names use UTF-8 hex command arguments so whitespace cannot alter the line protocol. These commands run inside the active `session` worker. The Electron main process owns cancellation by terminating that worker and waits for the old helper to exit before queueing another session.
 
 Download progress is throttled in the native helper to about one event per MiB plus completion. This keeps large video copies observable without flooding the Electron IPC path or diagnostic logs.
 
