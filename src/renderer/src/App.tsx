@@ -2694,7 +2694,9 @@ export function App(): JSX.Element {
             skipSummary
               ? skipSummary
               : folderCount > 0
-                ? 'Folder created on the phone. It did not contain files to upload.'
+                ? operation === 'move'
+                  ? 'Nothing was moved. The folder has no files, so only an empty folder was created on the phone.'
+                  : 'Folder created on the phone. It did not contain files to upload.'
                 : 'No Mac files were queued.'
         });
         return;
@@ -4569,7 +4571,9 @@ export function App(): JSX.Element {
         setTransferNotice({
           phase: plan.directories.length ? 'ready' : 'failed',
           message: plan.directories.length
-            ? 'Folder created on the Mac. It did not contain files to copy.'
+            ? operation === 'move'
+              ? 'Nothing was moved. The folder has no files, so only an empty folder was created on the Mac.'
+              : 'Folder created on the Mac. It did not contain files to copy.'
             : 'No files were found in that selection.'
         });
         return;
