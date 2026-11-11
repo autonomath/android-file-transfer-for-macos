@@ -235,8 +235,13 @@ const main = await readFile(resolve(root, 'src/main/index.ts'), 'utf8');
 const native = await readFile(resolve(root, 'src/native/mtp-json.c'), 'utf8');
 assert.match(
   app,
-  /async function copyRowsToMac[\s\S]*?\): Promise<void> \{[\s\S]*?largeFilesScan\.current\?\.stop\(\);[\s\S]*?const rememberedRows/,
-  'Starting a Copy or Move must stop the large-file scan before looking files up.'
+  /async function copyRowsToMac[\s\S]*?\): Promise<void> \{(?:\s*\/\/[^\n]*)*\s*if \(largeFilesScan\.current\?\.stop\(\)\) \{\s*try \{\s*await window\.mtp\.cancelFolderListing\(\);/,
+  'Starting a Copy or Move must stop the large-file scan and the folder it is listing first, instead of queuing minutes behind it.'
+);
+assert.match(
+  app,
+  /function stopScan\(\): boolean \{\s*if \(!scanning\) \{\s*return false;\s*\}[\s\S]*?return true;\s*\}/,
+  'Stopping the scan must report whether one was running, so Copy and Move know to stop its listing.'
 );
 assert.ok(lookupBody.length > 0, 'findRememberedRows must exist.');
 assert.ok(

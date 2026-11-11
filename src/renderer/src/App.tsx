@@ -1144,7 +1144,8 @@ function browserRowForLargeFile(entry: LargeFileEntry, deviceConnectionId: strin
 
 interface LargeFilesScanControl {
   rescan: () => void;
-  stop: () => void;
+  // True when a scan was running, so the caller can also stop the folder it is listing.
+  stop: () => boolean;
 }
 
 function LargeFilesBar({
@@ -1207,14 +1208,15 @@ function LargeFilesBar({
     setScanning(false);
   }
 
-  function stopScan(): void {
+  function stopScan(): boolean {
     if (!scanning) {
-      return;
+      return false;
     }
-    scanRun.current += 1; // The folder being listed finishes in the background and is ignored.
+    scanRun.current += 1; // Anything still coming from the folder being listed is ignored.
     setScanning(false);
     setOutcome({ entries, foldersChecked: progress?.foldersChecked ?? 0, complete: false });
     onEntries(entries, true);
+    return true;
   }
 
   useEffect(() => {
@@ -4510,8 +4512,15 @@ export function App(): JSX.Element {
     operation: TransferOperation = 'copy'
   ): Promise<void> {
     // A transfer the user asked for comes first: no more scan listings between its files.
-    // The folder being listed now still finishes; stopping a listing midway leaves the phone unresponsive.
-    largeFilesScan.current?.stop();
+    // The helper stops the folder being listed between objects and keeps the session, so the
+    // transfer does not wait minutes behind a camera folder.
+    if (largeFilesScan.current?.stop()) {
+      try {
+        await window.mtp.cancelFolderListing();
+      } catch {
+        // The transfer still runs, only after that listing ends.
+      }
+    }
     const rememberedRows = fileRows.filter((row) => row.largeFile && !row.object);
     if (rememberedRows.length) {
       const foundRows = await findRememberedRows(rememberedRows);
