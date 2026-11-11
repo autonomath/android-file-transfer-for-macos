@@ -56,6 +56,7 @@ import {
 import { validatePhoneItemName } from '../../shared/phoneMutation';
 import { validateLocalItemName } from '../../shared/localMutation';
 import { nextKeepBothPhoneName } from '../../shared/transferCollision';
+import { runMoveFolderCleanup, type MoveFolderCleanup } from '../../shared/moveCleanup';
 import {
   LARGE_FILE_MIN_BYTES,
   findRememberedLargeFiles,
@@ -218,10 +219,6 @@ interface PhoneUploadPlan {
   conflictCount: number;
   sourceFolders: string[];
 }
-
-type MoveFolderCleanup =
-  | { side: 'phone'; deviceIndex: number; deviceConnectionId: string; folders: PhoneMutationTarget[] }
-  | { side: 'mac'; folders: string[] };
 
 interface LocalCrumb {
   label: string;
@@ -1427,6 +1424,7 @@ export function App(): JSX.Element {
   const stalePhoneFolderKeys = useRef(new Set<string>());
   // Source folders of confirmed Moves, removed (when empty) once the queue drains.
   const pendingMoveCleanups = useRef<MoveFolderCleanup[]>([]);
+  const [moveCleanupRetry, setMoveCleanupRetry] = useState(0);
   // Remembered files looked up before the scan reached them, by path; null means no longer on the phone.
   // The scan reports such files from its starting memory until it lists their folder, so these win.
   const largeFileLookups = useRef(new Map<string, LargeFileEntry | null>());
@@ -4074,6 +4072,10 @@ export function App(): JSX.Element {
       for (const cleanup of cleanups) {
         await removeEmptiedMoveFolders(cleanup);
       }
+      if (pendingMoveCleanups.current.length) {
+        // shortcut: a refusal that never clears is retried every 5 s until the app quits; cap attempts if main gains a lasting refusal.
+        window.setTimeout(() => setMoveCleanupRetry((count) => count + 1), 5000);
+      }
       const keys = stalePhoneFolderKeys.current;
       stalePhoneFolderKeys.current = new Set();
       // Folders the user left are dropped from the cache so the next visit lists them fresh.
@@ -4090,33 +4092,20 @@ export function App(): JSX.Element {
         void loadFolder(location.storageId, location.folderId, true);
       }
     })();
-  }, [queueSummary.cancellable, currentFolderKey]);
+  }, [queueSummary.cancellable, currentFolderKey, moveCleanupRetry]);
 
-  // Runs after the queue drains, deepest folder first. Main and the phone keep any folder that is not empty,
-  // so a file whose move failed keeps its folder (and every folder above it).
   async function removeEmptiedMoveFolders(cleanup: MoveFolderCleanup): Promise<void> {
-    const kept: string[] = [];
-    if (cleanup.side === 'mac') {
-      const result = await window.mtp.removeEmptyLocalFolders(cleanup.folders);
-      result.kept.forEach((folder) => kept.push(`${fileNameFromPath(folder.path)}: ${folder.message}`));
-      if (localPath) {
-        void loadLocalDirectory(localPath);
-      }
-    } else {
-      for (let start = 0; start < cleanup.folders.length; start += 1000) {
-        const batch = cleanup.folders.slice(start, start + 1000);
-        const result = await window.mtp.deletePhoneItems({
-          deviceIndex: cleanup.deviceIndex,
-          deviceConnectionId: cleanup.deviceConnectionId,
-          targets: batch,
-          emptyFoldersOnly: true
-        });
-        forgetPhoneObjects(batch.filter((target) => result.deletedObjectIds.includes(target.objectId)));
-        result.failures.forEach((failure) => kept.push(`${failure.target.name}: ${failure.message}`));
-        if (!result.ok && !result.failures.length) {
-          kept.push(result.message);
-        }
-      }
+    const { deletedTargets, kept, retry } = await runMoveFolderCleanup(
+      cleanup,
+      window.mtp.removeEmptyLocalFolders,
+      window.mtp.deletePhoneItems
+    );
+    forgetPhoneObjects(deletedTargets);
+    if (retry) {
+      pendingMoveCleanups.current.push(retry);
+    }
+    if (cleanup.side === 'mac' && localPath) {
+      void loadLocalDirectory(localPath);
     }
     if (kept.length) {
       setTransferNotice({
