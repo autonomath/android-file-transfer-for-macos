@@ -38,7 +38,7 @@ After reviewing the seven assets and release notes, publish them with:
 bash scripts/publish-macos-release.sh release/assets "$(node -p "require('./package.json').version")"
 ```
 
-The publish script checks that `HEAD` is clean and available on GitHub, creates or updates a draft release bound to that SHA, downloads the assets from GitHub, reruns the complete verification gate, then publishes a normal release. If verification fails, the release stays in draft. A pre-existing published tag or a tag pointing to another commit stops the script.
+The publish script checks that `HEAD` is clean and available on GitHub, creates or verifies the tag at that SHA before making the draft (GitHub may not create a tag ref for a draft), and uses a matching versioned release-notes file when present. It uploads the draft assets, downloads them from GitHub, reruns the complete verification gate, then publishes a normal release. If verification fails, the release stays in draft. A pre-existing published release or a tag pointing to another commit stops the script.
 
 ## Release checks
 

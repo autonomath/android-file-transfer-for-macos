@@ -89,8 +89,9 @@ assert.match(styles, /\.local-column-header button\.active/, 'Active Mac sort co
 assert.match(styles, /\.local-nav-buttons/, 'Mac navigation controls must have compact styling.');
 assert.match(styles, /\.local-breadcrumbs/, 'Mac breadcrumbs must have dedicated compact styling.');
 assert.match(styles, /\.local-pane\s*\{[\s\S]*grid-template-rows:\s*auto auto auto auto auto auto minmax\(0, 1fr\)/, 'Mac pane grid must reserve rows for title, folder picker, shortcuts, breadcrumbs, browser controls, actions, and the scrollable file view.');
-assert.match(styles, /\.queue-pane\s*\{[\s\S]*flex-direction:\s*column/, 'Right pane must stack the Mac browser above the transfer queue.');
+assert.match(styles, /\.queue-pane\s*\{[\s\S]*flex-direction:\s*column/, 'Right pane must stack the Mac browser above its drag drop zone.');
 assert.match(styles, /\.queue-header\s*\{[\s\S]*flex:\s*1 1 360px/, 'Mac browser must receive the primary height in the right pane.');
-assert.match(styles, /\.queue-list\.empty\s*\{[\s\S]*flex:\s*0 0 auto/, 'Empty transfer history must not reserve space from the Mac browser.');
+assert.match(styles, /\.transfer-status\s*\{\s*grid-row:\s*6;/, 'Transfer status must sit under the phone file list, leaving the Mac pane to the Mac browser.');
+assert.match(app, /\(transferLogOpen \|\| !visibleQueueJobs\.length\) && \(/, 'The transfer job list must stay collapsed to the summary line until expanded.');
 
 console.log('Local pane contract check passed.');

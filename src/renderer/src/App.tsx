@@ -5,8 +5,11 @@ import {
   ArrowRight,
   ArrowUp,
   CheckCircle2,
+  CircleMinus,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Circle,
   ClipboardList,
   Download,
@@ -30,6 +33,7 @@ import {
   Pencil,
   RefreshCcw,
   RotateCcw,
+  ScanSearch,
   Search,
   Smartphone,
   Sun,
@@ -52,6 +56,18 @@ import {
 import { validatePhoneItemName } from '../../shared/phoneMutation';
 import { validateLocalItemName } from '../../shared/localMutation';
 import { nextKeepBothPhoneName } from '../../shared/transferCollision';
+import { runMoveFolderCleanup, type MoveFolderCleanup } from '../../shared/moveCleanup';
+import {
+  LARGE_FILE_MIN_BYTES,
+  findRememberedLargeFiles,
+  parseRememberedLargeFiles,
+  scanForLargeFiles,
+  serializeRememberedLargeFiles,
+  type LargeFileEntry,
+  type LargeFileScanDepth,
+  type LargeFileScanResult,
+  type LargeFileScanUpdate
+} from '../../shared/largeFiles';
 import type {
   AppMenuCommand,
   AppUpdateCheckResult,
@@ -103,6 +119,7 @@ const MAC_SHOW_HIDDEN_STORAGE_KEY = 'androidFileTransferForMacOS.macShowHiddenFi
 const LEGACY_SHOW_HIDDEN_STORAGE_KEY = 'androidFileTransferForMacOS.showHiddenFiles';
 const MAC_PANE_WIDTH_STORAGE_KEY = 'androidFileTransferForMacOS.macPaneWidth';
 const UPDATE_LAST_CHECK_STORAGE_KEY = 'androidFileTransferForMacOS.lastUpdateCheckAt';
+const LARGE_FILES_STORAGE_PREFIX = 'androidFileTransferForMacOS.largeFiles.';
 const AUTO_UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const AUTO_UPDATE_START_DELAY_MS = 6000;
 const DEFAULT_MAC_PANE_WIDTH = 460;
@@ -141,6 +158,7 @@ interface BrowserLocation {
   storageId: number | null;
   folderId: number;
   crumbs: Array<{ label: string; folderId: number }>;
+  largeFiles?: boolean;
 }
 
 interface BrowserRow {
@@ -152,6 +170,7 @@ interface BrowserRow {
   type: string;
   storage?: MtpStorage;
   object?: MtpObject;
+  largeFile?: LargeFileEntry;
 }
 
 interface RefreshFeedback {
@@ -174,6 +193,8 @@ interface ConnectionStageItem {
 interface PhoneDownloadPlan {
   requests: TransferRequest[];
   directories: PlannedLocalDirectory[];
+  // Phone folders walked for this plan, parents first; a Move removes them once they are empty.
+  sourceFolders: PhoneMutationTarget[];
 }
 
 interface PhoneDownloadPlanningProgress {
@@ -196,6 +217,7 @@ interface PhoneUploadPlan {
   requests: UploadRequest[];
   folderCount: number;
   conflictCount: number;
+  sourceFolders: string[];
 }
 
 interface LocalCrumb {
@@ -220,6 +242,8 @@ const rootLocation: BrowserLocation = {
   folderId: ROOT_PARENT_ID,
   crumbs: []
 };
+
+const largeFilesLocation: BrowserLocation = { ...rootLocation, largeFiles: true };
 
 function formatBytes(bytes: number): string {
   if (!bytes) {
@@ -1018,6 +1042,277 @@ function makeRows(
   }));
 }
 
+const LARGE_FILE_DEPTHS: Array<{ depth: LargeFileScanDepth; label: string; title: string; scope: string }> = [
+  {
+    depth: 'usual',
+    label: 'Usual places',
+    title: 'Camera, Movies, Downloads, messaging app media, game data, and folders where large files were found before.',
+    scope: 'in the usual places'
+  },
+  {
+    depth: 'deeper',
+    label: 'Deeper',
+    title: 'Usual places plus every folder up to four levels deep, including hidden folders and app data.',
+    scope: 'up to four levels deep'
+  },
+  {
+    depth: 'everything',
+    label: 'Whole phone',
+    title: 'Every folder on the phone. On a full phone this can take several minutes.',
+    scope: 'across the whole phone'
+  }
+];
+
+function storageDisplayName(storage: MtpStorage): string {
+  return storage.description || storage.volumeIdentifier || `Storage ${storage.id}`;
+}
+
+function largeFileFolderLabel(folderPath: string[]): string {
+  return folderPath.slice(1).join('/') || folderPath[0];
+}
+
+function isHiddenLargeFile(entry: LargeFileEntry): boolean {
+  return isHiddenFileName(entry.name) || entry.folderPath.slice(1).some((part) => isHiddenFileName(part));
+}
+
+function formatSeenAgo(timestamp: number): string {
+  const minutes = Math.round((Date.now() - timestamp) / 60_000);
+  if (minutes < 1) {
+    return 'just now';
+  }
+  const relative = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+  if (minutes < 60) {
+    return relative.format(-minutes, 'minute');
+  }
+  const hours = Math.round(minutes / 60);
+  return hours < 24 ? relative.format(-hours, 'hour') : relative.format(-Math.round(hours / 24), 'day');
+}
+
+function readRememberedLargeFiles(memoryKey: string | null): LargeFileEntry[] {
+  try {
+    return memoryKey ? parseRememberedLargeFiles(window.localStorage.getItem(memoryKey)) : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberLargeFiles(memoryKey: string | null, entries: LargeFileEntry[]): void {
+  try {
+    if (memoryKey) {
+      window.localStorage.setItem(memoryKey, serializeRememberedLargeFiles(entries));
+    }
+  } catch {
+    // Without storage the next scan only loses its head start.
+  }
+}
+
+function largeFilePath(entry: LargeFileEntry): string {
+  return [...entry.folderPath, entry.name].join('/');
+}
+
+function largeFileStorages(device: MtpDeviceInventory): Array<{ id: number; name: string }> {
+  return device.storages.map((storage) => ({ id: storage.id, name: storageDisplayName(storage) }));
+}
+
+function phoneFolderLister(device: MtpDeviceInventory): (storageId: number, folderId: number) => Promise<MtpObject[]> {
+  return async (storageId, folderId) => {
+    const listing = await window.mtp.listFolder(device.index, device.connectionId, storageId, folderId);
+    if (!listing.ok) {
+      throw new Error(listing.message || 'The phone did not list a folder.');
+    }
+    return listing.objects;
+  };
+}
+
+function browserRowForLargeFile(entry: LargeFileEntry, deviceConnectionId: string): BrowserRow {
+  return {
+    key: entry.live
+      ? objectRowKey(deviceConnectionId, entry.live.object.storageId, entry.live.object.id)
+      : `remembered:${largeFilePath(entry)}`,
+    name: entry.name,
+    kind: 'file',
+    size: entry.size,
+    modified: entry.modified,
+    type: largeFileFolderLabel(entry.folderPath),
+    object: entry.live?.object,
+    largeFile: entry
+  };
+}
+
+interface LargeFilesScanControl {
+  rescan: () => void;
+  // True when a scan was running, so the caller can also stop the folder it is listing.
+  stop: () => boolean;
+}
+
+function LargeFilesBar({
+  open,
+  device,
+  entries,
+  showHidden,
+  transfersActive,
+  control,
+  onEntries
+}: {
+  open: boolean;
+  device: MtpDeviceInventory;
+  entries: LargeFileEntry[];
+  showHidden: boolean;
+  transfersActive: boolean;
+  // Lets Refresh rescan, and Copy or Move stop the scan so the phone works on the transfer instead.
+  control: { current: LargeFilesScanControl | null };
+  // remember is true once a scan ends, so memory is written once per scan.
+  onEntries: (entries: LargeFileEntry[], remember: boolean) => void;
+}): JSX.Element {
+  const [depth, setDepth] = useState<LargeFileScanDepth>('usual');
+  const [scanning, setScanning] = useState(false);
+  const [progress, setProgress] = useState<LargeFileScanUpdate | null>(null);
+  // Items listed so far in the folder being checked; a camera folder can hold tens of thousands.
+  const [folderItems, setFolderItems] = useState<{ sent: number; total: number } | null>(null);
+  const [outcome, setOutcome] = useState<LargeFileScanResult | null>(null);
+  const scanRun = useRef(0);
+  const stopRequested = useRef(false);
+
+  async function runScan(nextDepth: LargeFileScanDepth): Promise<void> {
+    const run = scanRun.current + 1;
+    scanRun.current = run;
+    stopRequested.current = false;
+    setDepth(nextDepth);
+    setScanning(true);
+    setProgress(null);
+    setOutcome(null);
+    const result = await scanForLargeFiles({
+      storages: largeFileStorages(device),
+      depth: nextDepth,
+      known: entries,
+      list: phoneFolderLister(device),
+      shouldStop: () => stopRequested.current || scanRun.current !== run,
+      onUpdate: (update) => {
+        if (scanRun.current === run) {
+          setProgress(update);
+          setFolderItems(null);
+          if (update.entries) {
+            onEntries(update.entries, false);
+          }
+        }
+      }
+    });
+    if (scanRun.current !== run) {
+      return; // A newer scan started from these results and remembers its own.
+    }
+    onEntries(result.entries, true);
+    setOutcome(result);
+    setScanning(false);
+  }
+
+  function stopScan(): boolean {
+    if (!scanning) {
+      return false;
+    }
+    scanRun.current += 1; // Anything still coming from the folder being listed is ignored.
+    setScanning(false);
+    setOutcome({ entries, foldersChecked: progress?.foldersChecked ?? 0, complete: false });
+    onEntries(entries, true);
+    return true;
+  }
+
+  useEffect(() => {
+    if (!open) {
+      stopScan();
+    } else if (!outcome?.complete) {
+      void runScan(depth);
+    }
+  }, [open]);
+
+  control.current = { rescan: () => void runScan(depth), stop: stopScan };
+
+  // A phone that goes away must not get another folder request, which would reopen its session.
+  useEffect(
+    () => () => {
+      stopRequested.current = true;
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (!scanning) {
+      return undefined;
+    }
+    return window.mtp.onFolderListProgress((update) => {
+      if (update.deviceConnectionId === device.connectionId && update.total > 0) {
+        setFolderItems({ sent: update.sent, total: update.total });
+      }
+    });
+  }, [scanning, device.connectionId]);
+
+  const visibleEntries = showHidden ? entries : entries.filter((entry) => !isHiddenLargeFile(entry));
+  const hiddenCount = entries.length - visibleEntries.length;
+  const hiddenNote = hiddenCount ? ` · ${hiddenCount} hidden not shown` : '';
+  const totalBytes = visibleEntries.reduce((total, entry) => total + entry.size, 0);
+  const threshold = formatBytes(LARGE_FILE_MIN_BYTES);
+  const scope = LARGE_FILE_DEPTHS.find((option) => option.depth === depth)?.scope ?? '';
+  const summary = visibleEntries.length
+    ? `${pluralize(visibleEntries.length, 'file')} over ${threshold} · ${formatBytes(totalBytes)}${hiddenNote}`
+    : scanning
+      ? 'Looking for large files'
+      : `No files over ${threshold}${hiddenNote}`;
+  const status = scanning
+    ? `Checking ${progress ? largeFileFolderLabel(progress.currentFolder) : 'the phone'}${
+        folderItems ? ` (${folderItems.sent.toLocaleString()} of ${folderItems.total.toLocaleString()} items)` : ''
+      } · ${pluralize(
+        progress?.foldersChecked ?? 0,
+        'folder'
+      )} checked${transfersActive ? ' · may pause while files copy' : ''}`
+    : outcome?.error
+      ? `Stopped: ${outcome.error}`
+      : outcome && !outcome.complete
+        ? `Stopped after ${pluralize(outcome.foldersChecked, 'folder')}. Files not checked again show when they were last seen.`
+        : outcome
+          ? `Checked ${pluralize(outcome.foldersChecked, 'folder')} ${scope}.`
+          : 'Files found before are listed until their folders are checked again.';
+
+  return (
+    <div className="large-files-bar" hidden={!open}>
+      <strong role="status" aria-live="polite">
+        {summary}
+      </strong>
+      <span className="large-files-status" title={status}>
+        {status}
+      </span>
+      <div className="transfer-mode-switch large-files-depth" role="group" aria-label="Where to look">
+        {LARGE_FILE_DEPTHS.map((option) => (
+          <button
+            key={option.depth}
+            type="button"
+            className={depth === option.depth ? 'active' : ''}
+            aria-pressed={depth === option.depth}
+            title={option.title}
+            onClick={() => void runScan(option.depth)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+      {scanning ? (
+        <button type="button" className="text-button" onClick={stopScan}>
+          <X size={14} />
+          <span>Stop</span>
+        </button>
+      ) : (
+        <button type="button" className="text-button" onClick={() => void runScan(depth)}>
+          <RotateCcw size={14} />
+          <span>Rescan</span>
+        </button>
+      )}
+      {scanning && (
+        <div className="folder-progress-track large-files-progress" aria-hidden="true">
+          <div className="folder-progress-fill" />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function App(): JSX.Element {
   const [status, setStatus] = useState<DeviceStatus | null>(null);
   const [inventory, setInventory] = useState<InventoryResult | null>(null);
@@ -1055,6 +1350,7 @@ export function App(): JSX.Element {
   const [isDraggingTransfer, setIsDraggingTransfer] = useState(false);
   const [isDraggingMacFiles, setIsDraggingMacFiles] = useState(false);
   const [transferNotice, setTransferNotice] = useState<TransferNotice | null>(null);
+  const [transferLogOpen, setTransferLogOpen] = useState(false);
   const [phoneDownloadPlanning, setPhoneDownloadPlanning] = useState<PhoneDownloadPlanningProgress | null>(null);
   const [transferClipboard, setTransferClipboard] = useState<TransferClipboard | null>(null);
   const [newFolderDialogOpen, setNewFolderDialogOpen] = useState(false);
@@ -1093,6 +1389,8 @@ export function App(): JSX.Element {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [appUpdate, setAppUpdate] = useState<AppUpdateCheckResult | null>(null);
   const [updateCheckBusy, setUpdateCheckBusy] = useState(false);
+  const [largeFiles, setLargeFiles] = useState<LargeFileEntry[]>([]);
+  const largeFilesScan = useRef<LargeFilesScanControl | null>(null);
   const workspaceRef = useRef<HTMLElement>(null);
   const queuePaneRef = useRef<HTMLElement>(null);
   const phoneBrowserRef = useRef<HTMLDivElement>(null);
@@ -1119,12 +1417,28 @@ export function App(): JSX.Element {
   const scanCancelRequested = useRef(false);
   const lastScanFinishedAt = useRef(0);
   const connectionAttemptClock = useRef<{ connectionKey: string; startedAt: number } | null>(null);
+  const revealRowKey = useRef<string | null>(null);
+  // Object IDs deleted or moved off the phone during this connection; a running scan may still report them.
+  const forgottenObjectIds = useRef(new Set<number>());
+  // Phone folders changed by transfers; re-listed once the queue drains so listings never wait in line with copies.
+  const stalePhoneFolderKeys = useRef(new Set<string>());
+  // Source folders of confirmed Moves, removed (when empty) once the queue drains.
+  const pendingMoveCleanups = useRef<MoveFolderCleanup[]>([]);
+  const [moveCleanupRetry, setMoveCleanupRetry] = useState(0);
+  // Remembered files looked up before the scan reached them, by path; null means no longer on the phone.
+  // The scan reports such files from its starting memory until it lists their folder, so these win.
+  const largeFileLookups = useRef(new Map<string, LargeFileEntry | null>());
+  const browserSort = useRef<{ key: SortKey; direction: SortDirection } | null>(null);
 
   const inventoryDevices = inventory?.devices ?? [];
   const device =
     inventoryDevices.find((candidate) => candidate.connectionId === selectedDeviceConnectionId) ??
     inventoryDevices[0] ??
     null;
+  const largeFilesOpen = !!location.largeFiles;
+  const largeFilesMemoryKey = device?.serial
+    ? `${LARGE_FILES_STORAGE_PREFIX}${inventoryDeviceStableIdentityKey(device)}`
+    : null;
   const currentFolderKey =
     device && location.storageId !== null
       ? folderKey(device.connectionId, location.storageId, location.folderId)
@@ -1149,8 +1463,13 @@ export function App(): JSX.Element {
     null;
   const rawDeviceName = rawDevice?.vendor || rawDevice?.product || 'Android phone';
   const locationRows = useMemo(
-    () => makeRows(device, location, currentFolderObjects),
-    [currentFolderObjects, device, location]
+    () =>
+      largeFilesOpen && device
+        ? largeFiles
+            .filter((entry) => phoneShowHiddenFiles || !isHiddenLargeFile(entry))
+            .map((entry) => browserRowForLargeFile(entry, device.connectionId))
+        : makeRows(device, location, currentFolderObjects),
+    [currentFolderObjects, device, largeFiles, largeFilesOpen, location, phoneShowHiddenFiles]
   );
   const visibleLocationRows = useMemo(
     () =>
@@ -1171,8 +1490,13 @@ export function App(): JSX.Element {
     [rows, selectedKeys]
   );
 
+  const allRowsSelected = rows.length > 0 && selectedRows.length === rows.length;
   const selectedTransferRows = selectedRows.filter(
     (row) => (row.kind === 'file' || row.kind === 'folder') && row.object
+  );
+  // Remembered Large files rows can also go to the Mac; copyRowsToMac looks them up first.
+  const selectedDownloadRows = selectedRows.filter(
+    (row) => (row.kind === 'file' || row.kind === 'folder') && (row.object || row.largeFile)
   );
   const sortedLocalEntries = useMemo(
     () => [...localEntries].sort((a, b) => compareLocalEntries(a, b, localSortKey, localSortDirection)),
@@ -1251,6 +1575,17 @@ export function App(): JSX.Element {
       percent
     };
   }, [visibleQueueJobs]);
+  const attentionJob =
+    visibleQueueJobs.find((job) => job.status === 'active') ?? visibleQueueJobs.find((job) => job.status === 'failed');
+  const queueStatusDetail = [
+    `${queueSummary.completed} of ${queueSummary.total} done`,
+    queueSummary.failed ? `${queueSummary.failed} failed` : '',
+    queueSummary.canceled ? `${queueSummary.canceled} canceled` : '',
+    attentionJob?.name,
+    attentionJob?.status === 'failed' ? attentionJob.error : ''
+  ]
+    .filter(Boolean)
+    .join(' · ');
   const reportedPhase = reportedConnectionPhase(status, inventory);
   // The session is open and the phone has simply not shared storage yet. That
   // wait is rechecked in the background, and the recheck must not rewrite the
@@ -1303,26 +1638,19 @@ export function App(): JSX.Element {
   const usbBlocked = !!rawDevice && !fileTransferInactive &&
     (connectionPhase === 'usb-busy' || !!usbConflict);
   const currentFolderName = location.crumbs[location.crumbs.length - 1]?.label ?? 'folder';
-  const macDestinationLabel = folderLabelForPath(localPath || destination);
+  // One selected Mac folder is where phone files go; otherwise the open Mac folder.
+  const macTargetFolder =
+    selectedLocalEntries.length === 1 && selectedLocalEntries[0].kind === 'folder' ? selectedLocalEntries[0].path : '';
+  const macDestinationLabel = folderLabelForPath(macTargetFolder || localPath || destination);
   const phoneDestinationLabel = location.storageId === null ? 'Phone folder' : currentFolderName;
-  const phoneSelectionIsFilesOnly =
-    selectedTransferRows.length > 0 && selectedTransferRows.every((row) => row.kind === 'file');
-  const macSelectionIsFilesOnly =
-    selectedLocalEntries.length > 0 && selectedLocalEntries.every((entry) => entry.kind === 'file');
-  const canRunPhoneTransfer =
-    selectedTransferRows.length > 0 &&
-    hasDevice &&
-    (phoneTransferOperation === 'copy' || phoneSelectionIsFilesOnly);
-  const canRunMacTransfer =
-    selectedLocalEntries.length > 0 &&
-    canUploadToCurrentFolder &&
-    (macTransferOperation === 'copy' || macSelectionIsFilesOnly);
+  const canRunPhoneTransfer = selectedDownloadRows.length > 0 && hasDevice;
+  const canRunMacTransfer = selectedLocalEntries.length > 0 && canUploadToCurrentFolder;
   const phoneMutationBlocked =
     phoneMutationBusy ||
     phoneDownloadPlanning !== null ||
     jobs.some((job) => job.status === 'active' || job.status === 'queued');
   const canRenamePhoneSelection =
-    hasDevice && selectedTransferRows.length === 1 && !phoneMutationBlocked;
+    hasDevice && selectedTransferRows.length === 1 && !phoneMutationBlocked && !largeFilesOpen;
   const canDeletePhoneSelection =
     hasDevice && selectedTransferRows.length > 0 && !phoneMutationBlocked;
   const localMutationBlocked =
@@ -2139,11 +2467,12 @@ export function App(): JSX.Element {
     operation: TransferOperation = 'copy'
   ): Promise<PhoneUploadPlan> {
     if (!device) {
-      return { requests: [], folderCount: 0, conflictCount: 0 };
+      return { requests: [], folderCount: 0, conflictCount: 0, sourceFolders: [] };
     }
 
     const activeDevice = device;
     const requests: UploadRequest[] = [];
+    const sourceFolders: string[] = [];
     const visitedFolders = new Set<string>();
     const phoneFolderObjects = new Map<number, MtpObject[]>();
     const reservedPhoneNames = new Map<number, Set<string>>();
@@ -2295,12 +2624,17 @@ export function App(): JSX.Element {
       if (folderId === null) {
         return;
       }
-      const localFolder = await window.mtp.listLocalDirectory(entry.path, macShowHiddenFiles);
+      sourceFolders.push(entry.path);
+      // A Move must take hidden files too, or the source folder can never empty out.
+      const localFolder = await window.mtp.listLocalDirectory(entry.path, macShowHiddenFiles || operation === 'move');
       if (!localFolder.ok) {
         throw new Error(localFolder.message || `Could not read ${entry.name} on the Mac.`);
       }
 
       for (const child of localFolder.entries) {
+        if (operation === 'move' && child.name === '.DS_Store') {
+          continue;
+        }
         await collect(child, folderId, depth + 1);
       }
     }
@@ -2309,7 +2643,7 @@ export function App(): JSX.Element {
       await collect(entry, parentId);
     }
 
-    return { requests, folderCount, conflictCount };
+    return { requests, folderCount, conflictCount, sourceFolders };
   }
 
   async function copyLocalFilesToPhone(
@@ -2328,14 +2662,6 @@ export function App(): JSX.Element {
       return;
     }
 
-    if (operation === 'move' && fileEntries.some((entry) => entry.kind !== 'file')) {
-      setTransferNotice({
-        phase: 'failed',
-        message: 'Move works with files only. Choose Copy for folders.'
-      });
-      return;
-    }
-
     const storageId = location.storageId;
     if (storageId === null) {
       return;
@@ -2350,7 +2676,7 @@ export function App(): JSX.Element {
     }
 
     try {
-      const { requests, folderCount, conflictCount } = await planLocalEntriesForUpload(
+      const { requests, folderCount, conflictCount, sourceFolders } = await planLocalEntriesForUpload(
         fileEntries,
         storageId,
         location.folderId,
@@ -2368,7 +2694,9 @@ export function App(): JSX.Element {
             skipSummary
               ? skipSummary
               : folderCount > 0
-                ? 'Folder created on the phone. It did not contain files to upload.'
+                ? operation === 'move'
+                  ? 'Nothing was moved. The folder has no files, so only an empty folder was created on the phone.'
+                  : 'Folder created on the phone. It did not contain files to upload.'
                 : 'No Mac files were queued.'
         });
         return;
@@ -2400,6 +2728,9 @@ export function App(): JSX.Element {
         incompatibleCount
       );
       setJobs((currentJobs) => mergeTransferJobs(currentJobs, queued));
+      if (operation === 'move' && sourceFolders.length && queued.length) {
+        pendingMoveCleanups.current.push({ side: 'mac', folders: [...sourceFolders].reverse() });
+      }
       setTransferNotice({
         phase: queued.length ? 'queued' : 'failed',
         message: queued.length
@@ -2500,6 +2831,40 @@ export function App(): JSX.Element {
     goUp();
   }
 
+  function goBackActivePane(): void {
+    if (activePane === 'mac') {
+      void goBackLocalDirectory();
+    } else {
+      goBack();
+    }
+  }
+
+  function goForwardActivePane(): void {
+    if (activePane === 'mac') {
+      void goForwardLocalDirectory();
+    } else {
+      goForward();
+    }
+  }
+
+  function refreshPhonePane(): void {
+    if (largeFilesOpen) {
+      largeFilesScan.current?.rescan();
+    } else if (location.storageId === null) {
+      void handleManualRefresh();
+    } else {
+      void loadFolder(location.storageId, location.folderId, true);
+    }
+  }
+
+  function refreshActivePane(): void {
+    if (activePane === 'mac') {
+      void loadLocalDirectory(localPath || undefined);
+    } else {
+      refreshPhonePane();
+    }
+  }
+
   function copyActivePaneSelectionToQueue(): void {
     if (activePane === 'mac') {
       if (!selectedLocalEntries.length) {
@@ -2509,7 +2874,7 @@ export function App(): JSX.Element {
       return;
     }
 
-    if (!selectedTransferRows.length) {
+    if (!selectedDownloadRows.length) {
       return;
     }
     void copySelectedToMac();
@@ -2763,6 +3128,12 @@ export function App(): JSX.Element {
       case 'paste-selection':
         void pasteTransferClipboard();
         break;
+      case 'go-back':
+        goBackActivePane();
+        break;
+      case 'go-forward':
+        goForwardActivePane();
+        break;
       case 'folder-up':
         goUpActivePane();
         break;
@@ -2773,7 +3144,7 @@ export function App(): JSX.Element {
         focusMacPane();
         break;
       case 'refresh':
-        void handleManualRefresh();
+        refreshActivePane();
         break;
       case 'select-all':
         selectAllActiveContext();
@@ -2846,6 +3217,11 @@ export function App(): JSX.Element {
       void goUpLocalDirectory();
       return;
     }
+    if ((event.metaKey || event.ctrlKey) && key === 'arrowdown') {
+      event.preventDefault();
+      openSelectedLocalEntry();
+      return;
+    }
     if (event.key === 'F2') {
       event.preventDefault();
       openRenameLocalItemDialog();
@@ -2890,7 +3266,7 @@ export function App(): JSX.Element {
       moveLocalSelection(-1, event.shiftKey);
     } else if (event.key === 'ArrowLeft') {
       event.preventDefault();
-      void goUpLocalDirectory();
+      void goBackLocalDirectory();
     } else if (event.key === 'ArrowRight' || event.key === 'Enter') {
       event.preventDefault();
       openSelectedLocalEntry();
@@ -3158,6 +3534,10 @@ export function App(): JSX.Element {
       setTransferNotice({ phase: 'failed', message: 'Select one phone file or folder to rename.' });
       return;
     }
+    if (targetRow.largeFile) {
+      setTransferNotice({ phase: 'failed', message: 'Use Show in Folder, then rename the file there.' });
+      return;
+    }
     if (phoneMutationBlocked) {
       setTransferNotice({ phase: 'failed', message: 'Wait for the current phone operation to finish.' });
       return;
@@ -3254,11 +3634,12 @@ export function App(): JSX.Element {
         }
         return;
       }
+      const deletedIds = new Set(result.deletedObjectIds);
+      forgetPhoneObjects(targets.filter((target) => deletedIds.has(target.objectId)));
+      setSelectedKeys(
+        new Set(result.failures.map(({ target }) => objectRowKey(device.connectionId, target.storageId, target.objectId)))
+      );
       if (location.storageId !== null) {
-        const failedKeys = result.failures.map(({ target }) =>
-          objectRowKey(device.connectionId, location.storageId as number, target.objectId)
-        );
-        setSelectedKeys(new Set(failedKeys));
         await loadFolder(location.storageId, location.folderId, true);
       }
       setTransferNotice({ phase: result.ok ? 'ready' : 'failed', message: result.message });
@@ -3536,6 +3917,33 @@ export function App(): JSX.Element {
   }, [device?.connectionId, location.folderId, location.storageId]);
 
   useEffect(() => {
+    const key = revealRowKey.current;
+    if (key && rows.some((row) => row.key === key)) {
+      revealRowKey.current = null;
+      phoneBrowserRef.current?.querySelector('.selected')?.scrollIntoView({ block: 'center' });
+    }
+  }, [rows]);
+
+  useEffect(() => {
+    forgottenObjectIds.current = new Set();
+    largeFileLookups.current = new Map();
+    setLargeFiles(readRememberedLargeFiles(largeFilesMemoryKey));
+  }, [device?.connectionId]);
+
+  // Large files opens biggest first; the folder sort comes back on leaving.
+  useEffect(() => {
+    if (largeFilesOpen) {
+      browserSort.current = { key: sortKey, direction: sortDirection };
+      setSortKey('size');
+      setSortDirection('desc');
+    } else if (browserSort.current) {
+      setSortKey(browserSort.current.key);
+      setSortDirection(browserSort.current.direction);
+      browserSort.current = null;
+    }
+  }, [largeFilesOpen]);
+
+  useEffect(() => {
     if (!browserLoading) {
       setLoadingElapsedSeconds(0);
       return;
@@ -3589,7 +3997,7 @@ export function App(): JSX.Element {
         event.job.storageId === location.storageId &&
         event.job.parentId === location.folderId
       ) {
-        void loadFolder(location.storageId, location.folderId, true);
+        stalePhoneFolderKeys.current.add(folderKey(device.connectionId, location.storageId, location.folderId));
       }
       if (
         event.type === 'completed' &&
@@ -3619,7 +4027,20 @@ export function App(): JSX.Element {
         event.job.storageId === location.storageId &&
         event.job.parentId === location.folderId
       ) {
-        void loadFolder(location.storageId, location.folderId, true);
+        stalePhoneFolderKeys.current.add(folderKey(device.connectionId, location.storageId, location.folderId));
+      }
+      const { job } = event;
+      if (
+        event.type === 'completed' &&
+        job.operation === 'move' &&
+        job.sourceRemovalStatus === 'removed' &&
+        job.direction === 'download' &&
+        job.deviceConnectionId === device?.connectionId &&
+        job.objectId !== undefined &&
+        job.storageId !== undefined &&
+        job.parentId !== undefined
+      ) {
+        forgetPhoneObjects([{ objectId: job.objectId, storageId: job.storageId, parentId: job.parentId }]);
       }
       if (
         event.job.direction === 'download' &&
@@ -3643,6 +4064,58 @@ export function App(): JSX.Element {
       }
     });
   }, [device?.connectionId, localPath, location.folderId, location.storageId]);
+
+  useEffect(() => {
+    if (queueSummary.cancellable > 0 || (!stalePhoneFolderKeys.current.size && !pendingMoveCleanups.current.length)) {
+      return;
+    }
+    const cleanups = pendingMoveCleanups.current.splice(0);
+    void (async () => {
+      for (const cleanup of cleanups) {
+        await removeEmptiedMoveFolders(cleanup);
+      }
+      if (pendingMoveCleanups.current.length) {
+        // shortcut: a refusal that never clears is retried every 5 s until the app quits; cap attempts if main gains a lasting refusal.
+        window.setTimeout(() => setMoveCleanupRetry((count) => count + 1), 5000);
+      }
+      const keys = stalePhoneFolderKeys.current;
+      stalePhoneFolderKeys.current = new Set();
+      // Folders the user left are dropped from the cache so the next visit lists them fresh.
+      setFolderCache((cache) => {
+        const next = { ...cache };
+        keys.forEach((key) => {
+          if (key !== currentFolderKey) {
+            delete next[key];
+          }
+        });
+        return next;
+      });
+      if (currentFolderKey && keys.has(currentFolderKey) && location.storageId !== null) {
+        void loadFolder(location.storageId, location.folderId, true);
+      }
+    })();
+  }, [queueSummary.cancellable, currentFolderKey, moveCleanupRetry]);
+
+  async function removeEmptiedMoveFolders(cleanup: MoveFolderCleanup): Promise<void> {
+    const { deletedTargets, kept, retry } = await runMoveFolderCleanup(
+      cleanup,
+      window.mtp.removeEmptyLocalFolders,
+      window.mtp.deletePhoneItems
+    );
+    forgetPhoneObjects(deletedTargets);
+    if (retry) {
+      pendingMoveCleanups.current.push(retry);
+    }
+    if (cleanup.side === 'mac' && localPath) {
+      void loadLocalDirectory(localPath);
+    }
+    if (kept.length) {
+      setTransferNotice({
+        phase: 'failed',
+        message: `${kept.length} moved ${kept.length === 1 ? 'folder was' : 'folders were'} kept on the ${cleanup.side === 'mac' ? 'Mac' : 'phone'}. ${kept[0]}`
+      });
+    }
+  }
 
   useEffect(() => {
     return window.mtp.onPhoneFilePromiseDragEvent((event) => {
@@ -3760,6 +4233,10 @@ export function App(): JSX.Element {
   }
 
   function openRow(row: BrowserRow): void {
+    if (row.largeFile) {
+      revealLargeFile(row.largeFile);
+      return;
+    }
     if (row.kind === 'storage' && row.storage) {
       navigate({
         storageId: row.storage.id,
@@ -3804,6 +4281,9 @@ export function App(): JSX.Element {
 
   function goUp(): void {
     if (location.storageId === null) {
+      if (largeFilesOpen) {
+        navigate(rootLocation);
+      }
       return;
     }
 
@@ -3982,7 +4462,7 @@ export function App(): JSX.Element {
       movePhoneSelection(-1, event.shiftKey);
     } else if (event.key === 'ArrowLeft') {
       event.preventDefault();
-      goUp();
+      goBack();
     } else if (event.key === 'ArrowRight' || event.key === 'Enter') {
       event.preventDefault();
       openSelectedPhoneRow();
@@ -3993,6 +4473,9 @@ export function App(): JSX.Element {
   }
 
   async function chooseDestination(): Promise<string | null> {
+    if (macTargetFolder) {
+      return macTargetFolder;
+    }
     if (destination) {
       return destination;
     }
@@ -4019,6 +4502,24 @@ export function App(): JSX.Element {
     sourceDeviceConnectionId = device?.connectionId,
     operation: TransferOperation = 'copy'
   ): Promise<void> {
+    // A transfer the user asked for comes first: no more scan listings between its files.
+    // The helper stops the folder being listed between objects and keeps the session, so the
+    // transfer does not wait minutes behind a camera folder.
+    if (largeFilesScan.current?.stop()) {
+      try {
+        await window.mtp.cancelFolderListing();
+      } catch {
+        // The transfer still runs, only after that listing ends.
+      }
+    }
+    const rememberedRows = fileRows.filter((row) => row.largeFile && !row.object);
+    if (rememberedRows.length) {
+      const foundRows = await findRememberedRows(rememberedRows);
+      if (!foundRows) {
+        return;
+      }
+      fileRows = [...fileRows.filter((row) => !rememberedRows.includes(row)), ...foundRows];
+    }
     const validRows = fileRows.filter((row) => (row.kind === 'file' || row.kind === 'folder') && row.object);
     if (
       validRows.length === 0 ||
@@ -4028,20 +4529,12 @@ export function App(): JSX.Element {
       return;
     }
 
-    if (operation === 'move' && validRows.some((row) => row.kind !== 'file')) {
-      setTransferNotice({
-        phase: 'failed',
-        message: 'Move works with files only. Choose Copy for folders.'
-      });
-      return;
-    }
-
     const destinationDirectory = await chooseDestination();
     if (!destinationDirectory) {
       return;
     }
 
-    let plan: PhoneDownloadPlan = { requests: [], directories: [] };
+    let plan: PhoneDownloadPlan = { requests: [], directories: [], sourceFolders: [] };
     const includesFolder = validRows.some((row) => row.kind === 'folder');
     phoneDownloadPlanningCancelRequested.current = false;
     if (includesFolder) {
@@ -4078,7 +4571,9 @@ export function App(): JSX.Element {
         setTransferNotice({
           phase: plan.directories.length ? 'ready' : 'failed',
           message: plan.directories.length
-            ? 'Folder created on the Mac. It did not contain files to copy.'
+            ? operation === 'move'
+              ? 'Nothing was moved. The folder has no files, so only an empty folder was created on the Mac.'
+              : 'Folder created on the Mac. It did not contain files to copy.'
             : 'No files were found in that selection.'
         });
         return;
@@ -4152,6 +4647,14 @@ export function App(): JSX.Element {
       queueResult.skippedCount
     );
     setJobs((currentJobs) => mergeTransferJobs(currentJobs, queued));
+    if (operation === 'move' && plan.sourceFolders.length && queued.length) {
+      pendingMoveCleanups.current.push({
+        side: 'phone',
+        deviceIndex: sourceDeviceIndex,
+        deviceConnectionId: sourceDeviceConnectionId,
+        folders: [...plan.sourceFolders].reverse()
+      });
+    }
     setTransferNotice({
       phase: failedCount && !queuedCount ? 'failed' : 'queued',
       message:
@@ -4165,11 +4668,133 @@ export function App(): JSX.Element {
 
   async function copySelectedToMac(operation: TransferOperation = 'copy'): Promise<void> {
     await copyRowsToMac(
-      selectedTransferRows,
+      selectedDownloadRows,
       device?.index,
       device?.connectionId,
       operation
     );
+  }
+
+  function openLargeFiles(): void {
+    setActivePane('phone');
+    if (!largeFilesOpen) {
+      navigate(largeFilesLocation);
+    }
+  }
+
+  function revealLargeFile(entry: LargeFileEntry): void {
+    const live = entry.live;
+    if (!device || !live) {
+      return;
+    }
+    const folderId = live.crumbs[live.crumbs.length - 1].folderId;
+    const rowKey = objectRowKey(device.connectionId, live.object.storageId, live.object.id);
+    navigate({ storageId: live.storageId, folderId, crumbs: live.crumbs });
+    setSelectedKeys(new Set([rowKey]));
+    phoneSelectionAnchorKey.current = rowKey;
+    revealRowKey.current = rowKey;
+    setQuery('');
+    const cachedObjects = folderCache[folderKey(device.connectionId, live.storageId, folderId)];
+    if (cachedObjects && !cachedObjects.some((object) => object.id === live.object.id)) {
+      void loadFolder(live.storageId, folderId, true);
+    }
+  }
+
+  function withLargeFileLookups(entries: LargeFileEntry[]): LargeFileEntry[] {
+    return entries.flatMap((entry) => {
+      const lookup = entry.live ? entry : largeFileLookups.current.get(largeFilePath(entry));
+      const current = lookup === undefined ? entry : lookup;
+      if (!current) {
+        return [];
+      }
+      return current.live && forgottenObjectIds.current.has(current.live.object.id) ? [] : [current];
+    });
+  }
+
+  function updateLargeFiles(entries: LargeFileEntry[], remember: boolean): void {
+    const next = withLargeFileLookups(entries);
+    setLargeFiles(next);
+    if (remember) {
+      rememberLargeFiles(largeFilesMemoryKey, next);
+    }
+  }
+
+  // Remembered rows have no phone handle until the scan rechecks their folder, so look them up on demand.
+  async function findRememberedRows(rememberedRows: BrowserRow[]): Promise<BrowserRow[] | null> {
+    if (!device) {
+      return null;
+    }
+    const source = device;
+    setTransferNotice({
+      phase: 'queued',
+      message: `Finding ${pluralize(rememberedRows.length, 'file')} on the phone...`
+    });
+    let result: Awaited<ReturnType<typeof findRememberedLargeFiles>>;
+    try {
+      // The scan may be partway through a folder with thousands of photos. The helper stops it
+      // between objects and keeps the session, so the lookup starts right away.
+      await window.mtp.cancelFolderListing();
+      result = await findRememberedLargeFiles(
+        rememberedRows.flatMap((row) => (row.largeFile ? [row.largeFile] : [])),
+        largeFileStorages(source),
+        phoneFolderLister(source)
+      );
+    } catch (error) {
+      setTransferNotice({
+        phase: 'failed',
+        message: `Could not find the files on the phone: ${error instanceof Error ? error.message : String(error)}`
+      });
+      return null;
+    }
+    result.found.forEach((entry) => largeFileLookups.current.set(largeFilePath(entry), entry));
+    result.missing.forEach((entry) => largeFileLookups.current.set(largeFilePath(entry), null));
+    const memoryKey = largeFilesMemoryKey;
+    setLargeFiles((current) => {
+      const next = withLargeFileLookups(current);
+      rememberLargeFiles(memoryKey, next);
+      return next;
+    });
+    const foundRows = result.found.map((entry) => browserRowForLargeFile(entry, source.connectionId));
+    const liveKeys = new Map(foundRows.map((row) => [`remembered:${largeFilePath(row.largeFile as LargeFileEntry)}`, row.key]));
+    setSelectedKeys((keys) => new Set([...keys].map((key) => liveKeys.get(key) ?? key)));
+    if (result.missing.length) {
+      setTransferNotice({
+        phase: 'failed',
+        message: `${pluralize(result.missing.length, 'file')} ${result.missing.length === 1 ? 'is' : 'are'} no longer on the phone and ${result.missing.length === 1 ? 'was' : 'were'} removed from Large files.`
+      });
+    }
+    return foundRows;
+  }
+
+  // Deleted or moved-off phone files leave Large files, its memory, and stale listings of their folders.
+  function forgetPhoneObjects(objects: Array<{ objectId: number; storageId: number; parentId: number }>): void {
+    if (!device || !objects.length) {
+      return;
+    }
+    const ids = new Set(objects.map((object) => object.objectId));
+    ids.forEach((id) => forgottenObjectIds.current.add(id));
+    const memoryKey = largeFilesMemoryKey;
+    setLargeFiles((current) => {
+      const next = current.filter((entry) => !entry.live || !ids.has(entry.live.object.id));
+      if (next.length !== current.length) {
+        rememberLargeFiles(memoryKey, next);
+      }
+      return next;
+    });
+    const connectionId = device.connectionId;
+    const openFolderKey = currentFolderKey;
+    setFolderCache((cache) => {
+      const next = { ...cache };
+      for (const object of objects) {
+        const key = folderKey(connectionId, object.storageId, object.parentId);
+        if (key === openFolderKey) {
+          next[key] = (next[key] ?? []).filter((item) => !ids.has(item.id));
+        } else {
+          delete next[key];
+        }
+      }
+      return next;
+    });
   }
 
   async function planPhoneRowsForDownload(
@@ -4181,11 +4806,12 @@ export function App(): JSX.Element {
     operation: TransferOperation = 'copy'
   ): Promise<PhoneDownloadPlan> {
     if (typeof sourceDeviceIndex !== 'number' || !sourceDeviceConnectionId) {
-      return { requests: [], directories: [] };
+      return { requests: [], directories: [], sourceFolders: [] };
     }
 
     const deviceIndex = sourceDeviceIndex;
     const planned: TransferRequest[] = [];
+    const sourceFolders: PhoneMutationTarget[] = [];
     const directoryMap = new Map<string, number>();
     let plannedFiles = 0;
     let plannedFolders = 0;
@@ -4232,6 +4858,13 @@ export function App(): JSX.Element {
       plannedFolders += 1;
       reportProgress(object.name);
       directoryMap.set(folderDirectory, object.modified);
+      sourceFolders.push({
+        objectId: object.id,
+        storageId: object.storageId,
+        parentId: object.parentId,
+        name: object.name,
+        kind: 'folder'
+      });
       const result = await window.mtp.listFolder(
         deviceIndex,
         sourceDeviceConnectionId,
@@ -4259,7 +4892,8 @@ export function App(): JSX.Element {
 
     return {
       requests: planned,
-      directories: Array.from(directoryMap, ([path, modified]) => ({ path, modified }))
+      directories: Array.from(directoryMap, ([path, modified]) => ({ path, modified })),
+      sourceFolders
     };
   }
 
@@ -4476,15 +5110,17 @@ export function App(): JSX.Element {
     } as CSSProperties;
     const phoneContextRow = contextMenu.rowKey ? rows.find((row) => row.key === contextMenu.rowKey) : undefined;
     const phoneContextTransferRow =
-      phoneContextRow && (phoneContextRow.kind === 'file' || phoneContextRow.kind === 'folder') && phoneContextRow.object
+      phoneContextRow &&
+      (phoneContextRow.kind === 'file' || phoneContextRow.kind === 'folder') &&
+      (phoneContextRow.object || phoneContextRow.largeFile)
         ? phoneContextRow
         : undefined;
     const phoneActionRows =
       contextMenu.pane === 'phone'
         ? phoneContextTransferRow && !selectedKeys.has(phoneContextTransferRow.key)
           ? [phoneContextTransferRow]
-          : selectedTransferRows.length
-            ? selectedTransferRows
+          : selectedDownloadRows.length
+            ? selectedDownloadRows
             : phoneContextTransferRow
               ? [phoneContextTransferRow]
               : []
@@ -4503,9 +5139,9 @@ export function App(): JSX.Element {
               : []
         : [];
     const phoneActionCount = phoneActionRows.length;
+    // Delete needs a phone handle, which remembered Large files rows do not have yet; it skips them.
+    const phoneLiveActionRows = phoneActionRows.filter((row) => row.object);
     const localActionCount = localActionEntries.length;
-    const phoneActionFilesOnly = phoneActionRows.length > 0 && phoneActionRows.every((row) => row.kind === 'file');
-    const localActionFilesOnly = localActionEntries.length > 0 && localActionEntries.every((entry) => entry.kind === 'file');
 
     if (contextMenu.pane === 'phone') {
       return (
@@ -4527,6 +5163,16 @@ export function App(): JSX.Element {
               <span>{phoneContextRow.kind === 'storage' ? 'Open Storage' : 'Open Folder'}</span>
             </button>
           )}
+          {phoneContextRow?.largeFile?.live && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => runContextMenuAction(() => openRow(phoneContextRow))}
+            >
+              <Folder size={15} />
+              <span>Show in Folder</span>
+            </button>
+          )}
           <button
             type="button"
             role="menuitem"
@@ -4539,8 +5185,7 @@ export function App(): JSX.Element {
           <button
             type="button"
             role="menuitem"
-            disabled={!phoneActionFilesOnly || !hasDevice}
-            title={phoneActionCount > 0 && !phoneActionFilesOnly ? 'Move works with files only.' : undefined}
+            disabled={!phoneActionCount || !hasDevice}
             onClick={() =>
               runContextMenuAction(() =>
                 void copyRowsToMac(
@@ -4558,7 +5203,7 @@ export function App(): JSX.Element {
           <button
             type="button"
             role="menuitem"
-            disabled={phoneActionCount !== 1 || phoneMutationBlocked}
+            disabled={phoneActionCount !== 1 || phoneMutationBlocked || largeFilesOpen}
             onClick={() =>
               runContextMenuAction(() => openRenamePhoneItemDialog(phoneActionRows[0]))
             }
@@ -4570,11 +5215,13 @@ export function App(): JSX.Element {
             type="button"
             role="menuitem"
             className="danger"
-            disabled={!phoneActionCount || phoneMutationBlocked}
+            disabled={!phoneLiveActionRows.length || phoneMutationBlocked}
             onClick={() => runContextMenuAction(() => void deletePhoneRows(phoneActionRows))}
           >
             <Trash2 size={15} />
-            <span>{phoneActionCount > 1 ? `Delete ${phoneActionCount} Items...` : 'Delete Permanently...'}</span>
+            <span>
+              {phoneLiveActionRows.length > 1 ? `Delete ${phoneLiveActionRows.length} Items...` : 'Delete Permanently...'}
+            </span>
           </button>
           <button
             type="button"
@@ -4589,7 +5236,7 @@ export function App(): JSX.Element {
           <button
             type="button"
             role="menuitem"
-            disabled={location.storageId === null}
+            disabled={location.storageId === null && !largeFilesOpen}
             onClick={() => runContextMenuAction(goUp)}
           >
             <ArrowUp size={15} />
@@ -4647,8 +5294,7 @@ export function App(): JSX.Element {
         <button
           type="button"
           role="menuitem"
-          disabled={!localActionFilesOnly || !canUploadToCurrentFolder}
-          title={localActionCount > 0 && !localActionFilesOnly ? 'Move works with files only.' : undefined}
+          disabled={!localActionCount || !canUploadToCurrentFolder}
           onClick={() =>
             runContextMenuAction(() => void copyLocalFilesToPhone(localActionEntries, 'move'))
           }
@@ -4752,7 +5398,7 @@ export function App(): JSX.Element {
 
       if (key === 'r') {
         event.preventDefault();
-        void handleManualRefresh();
+        refreshActivePane();
         return;
       }
 
@@ -4777,12 +5423,6 @@ export function App(): JSX.Element {
       if (key === 'd' && !isEditableElement(event.target)) {
         event.preventDefault();
         openRenameSelectedItem();
-        return;
-      }
-
-      if (key === 'b' && !isEditableElement(event.target)) {
-        event.preventDefault();
-        goUpActivePane();
         return;
       }
 
@@ -5005,6 +5645,7 @@ export function App(): JSX.Element {
               phoneName={rawDeviceName}
               conflict={usbConflict}
               requestQuit={window.mtp.requestQuitUsbApp}
+              releaseConnection={window.mtp.releaseUsbConnection}
             />
           ) : (
           <div className="connection-gate-copy">
@@ -5294,6 +5935,18 @@ export function App(): JSX.Element {
                 </button>
               );
             })}
+            {hasDevice && !!device?.storages.length && (
+              <button
+                type="button"
+                className={`device-choice ${largeFilesOpen ? 'active' : ''}`}
+                title="Find the biggest files on the phone, starting where they usually are."
+                onClick={openLargeFiles}
+              >
+                <ScanSearch size={14} />
+                <span>Large files</span>
+                <small>Biggest files first</small>
+              </button>
+            )}
             {!device?.storages.length && (
               <div className="empty-note">No mounted MTP storage.</div>
             )}
@@ -5363,7 +6016,7 @@ export function App(): JSX.Element {
         </aside>
 
         <section
-          className={`browser-pane ${isDraggingMacFiles ? 'upload-hover' : ''}`}
+          className={`browser-pane ${isDraggingMacFiles ? 'upload-hover' : ''} ${largeFilesOpen ? 'large-files-mode' : ''}`}
           ref={phoneBrowserRef}
           tabIndex={0}
           onFocus={() => setActivePane('phone')}
@@ -5377,12 +6030,12 @@ export function App(): JSX.Element {
         >
           <div className="browser-toolbar">
             <div className="nav-buttons">
-              <button className="icon-button" title="Back" disabled={!backStack.length} onClick={goBack}>
+              <button className="icon-button" title="Back (Cmd+[)" disabled={!backStack.length} onClick={goBack}>
                 <ChevronLeft size={17} />
               </button>
               <button
                 className="icon-button"
-                title="Forward"
+                title="Forward (Cmd+])"
                 disabled={!forwardStack.length}
                 onClick={goForward}
               >
@@ -5390,11 +6043,20 @@ export function App(): JSX.Element {
               </button>
               <button
                 className="icon-button"
-                title="Up"
-                disabled={location.storageId === null}
+                title="Enclosing folder (Cmd+Up)"
+                disabled={location.storageId === null && !largeFilesOpen}
                 onClick={goUp}
               >
                 <ArrowUp size={16} />
+              </button>
+              <button
+                className="icon-button"
+                title="Refresh (Cmd+R)"
+                aria-label="Refresh the open phone folder"
+                disabled={isScanning || folderLoading}
+                onClick={refreshPhonePane}
+              >
+                <RefreshCcw size={15} />
               </button>
             </div>
 
@@ -5488,11 +6150,16 @@ export function App(): JSX.Element {
             <div className="breadcrumbs" ref={phoneBreadcrumbsRef} aria-label="Phone folder path">
               <button
                 title="Device"
-                aria-current={location.crumbs.length === 0 ? 'page' : undefined}
+                aria-current={location.crumbs.length === 0 && !largeFilesOpen ? 'page' : undefined}
                 onClick={() => navigate(rootLocation)}
               >
                 Device
               </button>
+              {largeFilesOpen && (
+                <button type="button" aria-current="page">
+                  Large files
+                </button>
+              )}
               {location.crumbs.map((crumb, index) => (
                 <button
                   key={`${crumb.folderId}-${index}`}
@@ -5527,7 +6194,7 @@ export function App(): JSX.Element {
                 type="button"
                 className={phoneTransferOperation === 'move' ? 'active' : ''}
                 aria-pressed={phoneTransferOperation === 'move'}
-                title="Move files only. The source is deleted after the destination copy is verified."
+                title="Each source file is deleted after its copy is verified; emptied folders are removed."
                 onClick={() => setPhoneTransferOperation('move')}
               >
                 Move
@@ -5537,11 +6204,7 @@ export function App(): JSX.Element {
               type="button"
               className="primary-button transfer-destination-button"
               disabled={!canRunPhoneTransfer}
-              title={
-                phoneTransferOperation === 'move' && selectedTransferRows.length > 0 && !phoneSelectionIsFilesOnly
-                  ? 'Move works with files only. Choose Copy for folders.'
-                  : `${phoneTransferOperation === 'move' ? 'Move' : 'Copy'} selected phone files to ${localPath || destination || 'a Mac folder'}`
-              }
+              title={`${phoneTransferOperation === 'move' ? 'Move' : 'Copy'} selected phone items to ${macTargetFolder || localPath || destination || 'a Mac folder'}`}
               aria-label={`${phoneTransferOperation === 'move' ? 'Move' : 'Copy'} selected phone files to Mac folder ${macDestinationLabel}`}
               onClick={() => void copySelectedToMac(phoneTransferOperation)}
             >
@@ -5550,13 +6213,22 @@ export function App(): JSX.Element {
               <span>{macDestinationLabel}</span>
             </button>
             <span className="transfer-bar-status" title={`${phoneSelectionSummary}. ${phoneSelectionGuidance}`}>
-              {phoneTransferOperation === 'move' && selectedTransferRows.length > 0 && !phoneSelectionIsFilesOnly
-                ? 'Move supports files only; folders can still be copied.'
-                : selectedRows.length
-                  ? phoneSelectionSummary
-                  : 'Select phone files or folders'}
+              {selectedRows.length ? phoneSelectionSummary : 'Select phone files or folders'}
             </span>
           </div>
+
+          {device && (
+            <LargeFilesBar
+              key={device.connectionId}
+              open={largeFilesOpen && hasDevice}
+              device={device}
+              entries={largeFiles}
+              showHidden={phoneShowHiddenFiles}
+              transfersActive={queueSummary.cancellable > 0}
+                control={largeFilesScan}
+              onEntries={updateLargeFiles}
+            />
+          )}
 
           <div className="table-wrap">
             {isDraggingMacFiles && (
@@ -5639,7 +6311,7 @@ export function App(): JSX.Element {
                 )}
               </div>
             )}
-            {hasDevice && !browserLoading && !currentFolderError && !isDraggingMacFiles && (
+            {hasDevice && !largeFilesOpen && !browserLoading && !currentFolderError && !isDraggingMacFiles && (
               <div className="folder-summary-bar" role="status" aria-live="polite">
                 <strong>{currentLocationSummary}</strong>
                 <span title={phoneSelectionSummary || phoneSelectionGuidance}>
@@ -5765,14 +6437,9 @@ export function App(): JSX.Element {
                       <FileIcon row={row} />
                     </span>
                     <span className="file-tile-name">{row.name}</span>
-                    <span className="file-tile-meta">
-                      {row.kind === 'folder'
-                        ? 'Folder'
-                        : row.kind === 'storage'
-                          ? formatStorageTotal(row.storage)
-                          : `${formatBytes(row.size)} · ${row.type}`}
-                    </span>
-                    <span className="file-tile-date">{formatDate(row.modified)}</span>
+                    {row.kind === 'storage' && (
+                      <span className="file-tile-meta">{formatStorageTotal(row.storage)}</span>
+                    )}
                   </div>
                 ))}
               </div>
@@ -5787,7 +6454,32 @@ export function App(): JSX.Element {
                 </colgroup>
                 <thead>
                   <tr>
-                    <th className="select-col" />
+                    <th className="select-col">
+                      <button
+                        type="button"
+                        className="row-check"
+                        role="checkbox"
+                        aria-checked={allRowsSelected ? true : selectedRows.length ? 'mixed' : false}
+                        aria-label="Select all"
+                        disabled={!rows.length}
+                        onClick={() => {
+                          if (allRowsSelected) {
+                            setSelectedKeys(new Set());
+                            phoneSelectionAnchorKey.current = null;
+                          } else {
+                            selectAllPhoneRows();
+                          }
+                        }}
+                      >
+                        {allRowsSelected ? (
+                          <CheckCircle2 size={14} />
+                        ) : selectedRows.length ? (
+                          <CircleMinus size={14} />
+                        ) : (
+                          <Circle size={12} />
+                        )}
+                      </button>
+                    </th>
                     <th>
                       <button onClick={() => toggleSort('name')}>Name</button>
                     </th>
@@ -5798,7 +6490,7 @@ export function App(): JSX.Element {
                       <button onClick={() => toggleSort('modified')}>Modified</button>
                     </th>
                     <th>
-                      <button onClick={() => toggleSort('type')}>Type</button>
+                      <button onClick={() => toggleSort('type')}>{largeFilesOpen ? 'Folder' : 'Type'}</button>
                     </th>
                   </tr>
                 </thead>
@@ -5806,7 +6498,7 @@ export function App(): JSX.Element {
                   {rows.map((row) => (
                     <tr
                       key={row.key}
-                      className={selectedKeys.has(row.key) ? 'selected' : ''}
+                      className={`${selectedKeys.has(row.key) ? 'selected' : ''} ${row.largeFile && !row.object ? 'remembered' : ''}`}
                       draggable={row.kind === 'file' || row.kind === 'folder'}
                       onDragStart={(event) => startFileDrag(row, event)}
                       onContextMenu={(event) => openPhoneContextMenu(event, row)}
@@ -5816,9 +6508,26 @@ export function App(): JSX.Element {
                       onDoubleClick={() => openRow(row)}
                     >
                       <td className="select-col">
-                        {selectedKeys.has(row.key) ? <CheckCircle2 size={14} /> : <Circle size={12} />}
+                        {/* A tickbox adds or removes only its own row; clicking the row replaces the selection. */}
+                        <button
+                          type="button"
+                          className="row-check"
+                          role="checkbox"
+                          aria-checked={selectedKeys.has(row.key)}
+                          aria-label={`Select ${row.name}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            toggleRowSelection(row, true, event.shiftKey);
+                          }}
+                          onDoubleClick={(event) => event.stopPropagation()}
+                        >
+                          {selectedKeys.has(row.key) ? <CheckCircle2 size={14} /> : <Circle size={12} />}
+                        </button>
                       </td>
-                      <td className="name-cell" title={row.name}>
+                      <td
+                        className="name-cell"
+                        title={row.largeFile ? [...row.largeFile.folderPath, row.name].join('/') : row.name}
+                      >
                         <div className="name-cell-content">
                           <span className={`file-icon ${row.kind}`}>
                             <FileIcon row={row} />
@@ -5827,8 +6536,11 @@ export function App(): JSX.Element {
                         </div>
                       </td>
                       <td>{formatBrowserRowSize(row)}</td>
-                      <td>{formatDate(row.modified)}</td>
-                      <td>{row.type}</td>
+                      <td>{row.kind === 'file' ? formatDate(row.modified) : ''}</td>
+                      <td title={row.type}>
+                        {row.type}
+                        {row.largeFile && !row.object ? ` · last seen ${formatSeenAgo(row.largeFile.seenAt)}` : ''}
+                      </td>
                     </tr>
                   ))}
                   {!rows.length && (
@@ -5838,13 +6550,241 @@ export function App(): JSX.Element {
                           ? 'Scanning device...'
                           : folderLoading
                             ? 'Listing folder. Large photo or video folders can take a while.'
-                            : currentFolderError || 'No items in this location.'}
+                            : largeFilesOpen
+                              ? 'No large files found yet.'
+                              : currentFolderError || 'No items in this location.'}
                       </td>
                     </tr>
                   )}
                 </tbody>
               </table>
             )}
+          </div>
+          <div className={`transfer-status ${transferLogOpen ? 'open' : ''}`}>
+          {phoneDownloadPlanning && (
+            <div className="transfer-planning-notice" role="status" aria-live="polite">
+              <div className="transfer-planning-copy">
+                <Loader2 size={14} className="spin" />
+                <div>
+                  <strong>Preparing folder copy</strong>
+                  <span>
+                    {phoneDownloadPlanning.files} {phoneDownloadPlanning.files === 1 ? 'file' : 'files'} found in{' '}
+                    {phoneDownloadPlanning.folders} {phoneDownloadPlanning.folders === 1 ? 'folder' : 'folders'}.
+                    Keep the phone unlocked.
+                  </span>
+                  <small>Listing {phoneDownloadPlanning.currentName}</small>
+                </div>
+                <button
+                  type="button"
+                  className="transfer-planning-stop-button"
+                  onClick={() => void stopPhoneDownloadPlanning()}
+                >
+                  <X size={12} />
+                  <span>Stop</span>
+                </button>
+              </div>
+              <div
+                className="transfer-planning-track"
+                role="progressbar"
+                aria-label="Preparing folder copy"
+              >
+                <div className="transfer-planning-fill" />
+              </div>
+            </div>
+          )}
+
+          {transferNotice && (
+            <div className={`transfer-notice ${transferNotice.phase}`} role="status" aria-live="polite">
+              {transferNotice.phase === 'failed' ? <AlertTriangle size={14} /> : <Download size={14} />}
+              <span title={transferNotice.message}>{transferNotice.message}</span>
+            </div>
+          )}
+
+          {visibleQueueJobs.length > 0 && (
+            <div className={`queue-summary ${queueSummary.failed ? 'failed' : ''}`} role="status" aria-live="polite">
+              <button
+                type="button"
+                className="queue-summary-title"
+                aria-expanded={transferLogOpen}
+                title={transferLogOpen ? 'Hide transfer list' : `Show all ${queueSummary.total} transfers. ${queueStatusDetail}`}
+                onClick={() => setTransferLogOpen((open) => !open)}
+              >
+                <strong>
+                  {queueSummary.activeTransfers
+                    ? 'Transferring'
+                    : queueSummary.queuedTransfers
+                      ? 'Queued'
+                      : queueSummary.failed
+                        ? 'Needs attention'
+                        : queueSummary.canceled && !queueSummary.completed
+                          ? 'Canceled'
+                          : queueSummary.completed
+                            ? 'Completed'
+                            : 'Transfer queue'}
+                </strong>
+                <span>{queueStatusDetail}</span>
+              </button>
+              <div className="queue-summary-meta">
+                <span>
+                  {formatBytes(queueSummary.transferredBytes)} copied of {formatBytes(queueSummary.totalBytes)}
+                </span>
+                {queueSummary.activeTransfers > 0 && (
+                  <>
+                    <span>{formatBytes(queueSummary.speedBytesPerSecond)}/s</span>
+                    <span>ETA {formatDuration(queueSummary.etaSeconds)}</span>
+                  </>
+                )}
+                <span className="queue-summary-percent">{queueSummary.percent}%</span>
+              </div>
+              <div className="queue-summary-actions">
+                {queueSummary.finished > 0 && (
+                  <button className="text-button" onClick={clearFinishedTransfers}>
+                    <CheckCircle2 size={13} />
+                    <span>Clear Finished</span>
+                  </button>
+                )}
+                {queueSummary.cancellable > 0 && (
+                  <button className="text-button danger-button" onClick={() => void cancelAllTransfers()}>
+                    <X size={13} />
+                    <span>Cancel All</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="text-button"
+                  aria-expanded={transferLogOpen}
+                  onClick={() => setTransferLogOpen((open) => !open)}
+                >
+                  {transferLogOpen ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
+                  <span>{transferLogOpen ? 'Hide list' : `Show all ${queueSummary.total}`}</span>
+                </button>
+              </div>
+              {queueSummary.cancellable > 0 && (
+                <div
+                  className="progress-track queue-total-progress"
+                  role="progressbar"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={queueSummary.percent}
+                  aria-label="Overall transfer progress"
+                >
+                  <div className="progress-fill" style={{ width: `${queueSummary.percent}%` }} />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* The expanded list sits above the summary line (CSS order), so the strip grows up into the file table. */}
+          {(transferLogOpen || !visibleQueueJobs.length) && (
+          <div className="queue-list">
+            {visibleQueueJobs.map((job) => (
+              <div
+                className={`queue-item ${job.status} ${job.sourceRemovalStatus === 'kept' ? 'source-kept' : ''}`}
+                key={job.id}
+              >
+                <div className="queue-row">
+                  <FileIcon
+                    row={{
+                      key: job.id,
+                      kind: 'file',
+                      name: job.name,
+                      size: job.size,
+                      modified: 0,
+                      type: extensionFor(job.name)
+                    }}
+                  />
+                  <div className="queue-main">
+                    <strong>{job.name}</strong>
+                    <span>
+                      {job.operation === 'move' && job.sourceRemovalStatus === 'removed'
+                        ? 'moved'
+                        : job.operation === 'move' && job.sourceRemovalStatus === 'kept'
+                          ? 'copied; source kept'
+                          : job.status}{' '}
+                      ·{' '}
+                      {job.direction === 'upload'
+                        ? 'to phone'
+                        : 'to Mac'}{' '}
+                      ·{' '}
+                      {formatBytes(job.bytesTransferred)} / {formatBytes(job.totalBytes || job.size)}
+                      {job.status === 'active'
+                        ? ` · ${formatBytes(job.speedBytesPerSecond)}/s · ETA ${formatDuration(job.etaSeconds)}`
+                        : ''}
+                    </span>
+                    {job.direction === 'download' && job.renamedDestination && (
+                      <span className="queue-rename-note">
+                        Saved as {fileNameFromPath(job.destinationPath)} so nothing is overwritten.
+                      </span>
+                    )}
+                    {job.direction === 'upload' && job.collisionAction === 'keep-both' && job.uploadName && (
+                      <span className="queue-rename-note">
+                        Saving as {job.uploadName} so nothing is overwritten.
+                      </span>
+                    )}
+                    {job.direction === 'upload' && job.collisionAction === 'replace' && (
+                      <span className="queue-rename-note">
+                        The existing phone file stays in place until this copy is verified.
+                      </span>
+                    )}
+                  </div>
+                  <div className="job-actions">
+                  {(job.status === 'queued' || job.status === 'active') && (
+                    <button className="icon-button" title="Cancel" onClick={() => void window.mtp.cancelTransfer(job.id)}>
+                      <X size={14} />
+                    </button>
+                  )}
+                  {!job.promiseId &&
+                    !(job.direction === 'upload' && job.collisionAction === 'replace') &&
+                    (job.status === 'failed' || job.status === 'canceled') && (
+                    <button
+                      className="icon-button"
+                      title="Retry"
+                      onClick={() => void window.mtp.retryTransfer(job.id)}
+                    >
+                      <RotateCcw size={14} />
+                    </button>
+                  )}
+                  {job.status === 'completed' && job.direction === 'download' && (
+                    <button
+                      className="icon-button"
+                      title="Reveal in Finder"
+                      onClick={() => void window.mtp.revealInFinder(job.destinationPath)}
+                    >
+                      <ExternalLink size={14} />
+                    </button>
+                  )}
+                  </div>
+                </div>
+                {(job.status === 'active' || job.status === 'queued') && (
+                  <div className="progress-track">
+                    <div
+                      className="progress-fill"
+                      style={{
+                        width: `${Math.min(
+                          100,
+                          ((job.bytesTransferred || 0) / Math.max(job.totalBytes || job.size || 1, 1)) * 100
+                        )}%`
+                      }}
+                    />
+                  </div>
+                )}
+                {job.error && (
+                  <div className="job-error">
+                    {job.error}{job.promiseId ? ' Drag again.' : ''}
+                  </div>
+                )}
+                {job.status === 'completed' && job.resultMessage && (
+                  <div className={`job-result ${job.sourceRemovalStatus === 'kept' ? 'warning' : ''}`}>
+                    {job.resultMessage}
+                  </div>
+                )}
+              </div>
+            ))}
+            {!visibleQueueJobs.length && !transferNotice && !phoneDownloadPlanning && (
+              <div className="empty-note">Drag phone files directly to Finder, Desktop, another app, or this Mac folder.</div>
+            )}
+          </div>
+          )}
           </div>
         </section>
 
@@ -5875,12 +6815,6 @@ export function App(): JSX.Element {
                     ? 'Loading'
                     : `${localEntries.length} ${localEntries.length === 1 ? 'item' : 'items'}`}
                 </span>
-              </div>
-              <div className="destination-actions">
-                <button className="destination-button" onClick={() => void chooseMacFolder()}>
-                  <Folder size={15} />
-                  <span title={localPath || destination}>{localPath || destination}</span>
-                </button>
               </div>
               {commonMacFolders.length > 0 && (
                 <div className="common-folder-shortcuts" aria-label="Common Mac folders">
@@ -5943,7 +6877,7 @@ export function App(): JSX.Element {
                   </button>
                   <button
                     className="icon-button"
-                    title="Back"
+                    title="Back (Cmd+[)"
                     aria-label="Back in Mac folder history"
                     disabled={!localBackStack.length}
                     onClick={() => void goBackLocalDirectory()}
@@ -5952,7 +6886,7 @@ export function App(): JSX.Element {
                   </button>
                   <button
                     className="icon-button"
-                    title="Forward"
+                    title="Forward (Cmd+])"
                     aria-label="Forward in Mac folder history"
                     disabled={!localForwardStack.length}
                     onClick={() => void goForwardLocalDirectory()}
@@ -5961,12 +6895,21 @@ export function App(): JSX.Element {
                   </button>
                   <button
                     className="icon-button"
-                    title="Up"
+                    title="Enclosing folder (Cmd+Up)"
                     aria-label="Parent Mac folder"
                     disabled={!localParentPath || localParentPath === localPath}
                     onClick={() => void goUpLocalDirectory()}
                   >
                     <ArrowUp size={14} />
+                  </button>
+                  <button
+                    className="icon-button"
+                    title="Refresh (Cmd+R)"
+                    aria-label="Refresh the open Mac folder"
+                    disabled={!localPath || localLoading}
+                    onClick={() => void loadLocalDirectory(localPath)}
+                  >
+                    <RefreshCcw size={14} />
                   </button>
                 </div>
                 <div className="local-view-actions">
@@ -6025,7 +6968,7 @@ export function App(): JSX.Element {
                     type="button"
                     className={macTransferOperation === 'move' ? 'active' : ''}
                     aria-pressed={macTransferOperation === 'move'}
-                    title="Move files only. The Mac source is deleted after the phone copy is verified."
+                    title="Each Mac file is deleted after its phone copy is verified; emptied folders are removed."
                     onClick={() => setMacTransferOperation('move')}
                   >
                     Move
@@ -6034,11 +6977,7 @@ export function App(): JSX.Element {
                 <button
                   className="primary-button local-copy-button transfer-destination-button"
                   disabled={!canRunMacTransfer}
-                  title={
-                    macTransferOperation === 'move' && selectedLocalEntries.length > 0 && !macSelectionIsFilesOnly
-                      ? 'Move works with files only. Choose Copy for folders.'
-                      : `${macTransferOperation === 'move' ? 'Move' : 'Copy'} selected Mac files to ${phoneDestinationLabel}`
-                  }
+                  title={`${macTransferOperation === 'move' ? 'Move' : 'Copy'} selected Mac items to ${phoneDestinationLabel}`}
                   aria-label={`${macTransferOperation === 'move' ? 'Move' : 'Copy'} selected Mac files to phone folder ${phoneDestinationLabel}`}
                   onClick={() => void copyLocalFilesToPhone(selectedLocalEntries, macTransferOperation)}
                 >
@@ -6047,11 +6986,7 @@ export function App(): JSX.Element {
                   <ArrowLeft size={14} aria-hidden="true" />
                 </button>
                 <span className="transfer-bar-status" title={localSelectionStatus}>
-                  {macTransferOperation === 'move' && selectedLocalEntries.length > 0 && !macSelectionIsFilesOnly
-                    ? 'Move supports files only; folders can still be copied.'
-                    : selectedLocalEntries.length
-                      ? localSelectionSummary
-                      : 'Select Mac files or folders'}
+                  {selectedLocalEntries.length ? localSelectionSummary : 'Select Mac files or folders'}
                 </span>
               </div>
 
@@ -6131,7 +7066,7 @@ export function App(): JSX.Element {
                     >
                       <FileIcon row={browserRowForLocalEntry(entry)} />
                       <span className="local-name">{entry.name}</span>
-                      <span className="local-modified">{formatDate(entry.modified)}</span>
+                      <span className="local-modified">{entry.kind === 'folder' ? '' : formatDate(entry.modified)}</span>
                       <span className="local-kind">
                         {entry.kind === 'folder' ? 'Folder' : entry.type || extensionFor(entry.name)}
                       </span>
@@ -6159,12 +7094,6 @@ export function App(): JSX.Element {
                         <FileIcon row={browserRowForLocalEntry(entry)} />
                       </span>
                       <span className="file-tile-name">{entry.name}</span>
-                      <span className="file-tile-meta">
-                        {entry.kind === 'folder'
-                          ? 'Folder'
-                          : `${formatBytes(entry.size)} · ${entry.type || extensionFor(entry.name)}`}
-                      </span>
-                      <span className="file-tile-date">{formatDate(entry.modified)}</span>
                     </button>
                   ))}
                 {!localLoading && !localEntries.length && (
@@ -6176,232 +7105,13 @@ export function App(): JSX.Element {
             </div>
           </div>
 
-          <div className="drop-zone">
-            <Download size={18} />
-            <span>
-              {isDraggingTransfer
-                ? `Drop here to copy into ${folderLabelForPath(localPath || destination)}`
-                : 'Drag phone files directly to Finder, Desktop, another app, or this Mac folder.'}
-            </span>
-          </div>
-
-          {phoneDownloadPlanning && (
-            <div className="transfer-planning-notice" role="status" aria-live="polite">
-              <div className="transfer-planning-copy">
-                <Loader2 size={14} className="spin" />
-                <div>
-                  <strong>Preparing folder copy</strong>
-                  <span>
-                    {phoneDownloadPlanning.files} {phoneDownloadPlanning.files === 1 ? 'file' : 'files'} found in{' '}
-                    {phoneDownloadPlanning.folders} {phoneDownloadPlanning.folders === 1 ? 'folder' : 'folders'}.
-                    Keep the phone unlocked.
-                  </span>
-                  <small>Listing {phoneDownloadPlanning.currentName}</small>
-                </div>
-                <button
-                  type="button"
-                  className="transfer-planning-stop-button"
-                  onClick={() => void stopPhoneDownloadPlanning()}
-                >
-                  <X size={12} />
-                  <span>Stop</span>
-                </button>
-              </div>
-              <div
-                className="transfer-planning-track"
-                role="progressbar"
-                aria-label="Preparing folder copy"
-              >
-                <div className="transfer-planning-fill" />
-              </div>
+          {isDraggingTransfer && (
+            <div className="drop-zone">
+              <Download size={18} />
+              <span>{`Drop here to copy into ${folderLabelForPath(localPath || destination)}`}</span>
             </div>
           )}
 
-          {transferNotice && (
-            <div className={`transfer-notice ${transferNotice.phase}`} role="status" aria-live="polite">
-              {transferNotice.phase === 'failed' ? <AlertTriangle size={14} /> : <Download size={14} />}
-              <span>{transferNotice.message}</span>
-            </div>
-          )}
-
-          {visibleQueueJobs.length > 0 && (
-            <div className="queue-summary" role="status" aria-live="polite">
-              <div className="queue-summary-top">
-                <div className="queue-summary-title">
-                  <strong>
-                    {queueSummary.activeTransfers
-                      ? 'Transferring'
-                      : queueSummary.queuedTransfers
-                        ? 'Queued'
-                        : queueSummary.failed
-                          ? 'Needs attention'
-                          : queueSummary.canceled && !queueSummary.completed
-                            ? 'Canceled'
-                            : queueSummary.completed
-                              ? 'Completed'
-                              : 'Transfer queue'}
-                  </strong>
-                  <span>
-                    {queueSummary.completed} done
-                    {' · '}
-                    {queueSummary.failed} failed · {queueSummary.canceled} canceled
-                  </span>
-                </div>
-                <span className="queue-summary-percent">{queueSummary.percent}%</span>
-              </div>
-              <div
-                className="progress-track queue-total-progress"
-                role="progressbar"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={queueSummary.percent}
-                aria-label="Overall transfer progress"
-              >
-                <div className="progress-fill" style={{ width: `${queueSummary.percent}%` }} />
-              </div>
-              <div className="queue-summary-meta">
-                <span>
-                  {formatBytes(queueSummary.transferredBytes)} copied of {formatBytes(queueSummary.totalBytes)}
-                </span>
-                <span>{formatBytes(queueSummary.speedBytesPerSecond)}/s</span>
-                <span>ETA {formatDuration(queueSummary.etaSeconds)}</span>
-              </div>
-              <div className="queue-summary-actions">
-                <button
-                  className="text-button"
-                  disabled={!queueSummary.finished}
-                  onClick={clearFinishedTransfers}
-                >
-                  <CheckCircle2 size={13} />
-                  <span>Clear Finished</span>
-                </button>
-                <button
-                  className="text-button danger-button"
-                  disabled={!queueSummary.cancellable}
-                  onClick={() => void cancelAllTransfers()}
-                >
-                  <X size={13} />
-                  <span>Cancel All</span>
-                </button>
-              </div>
-            </div>
-          )}
-
-          <div className={`queue-list ${visibleQueueJobs.length ? 'has-jobs' : 'empty'}`}>
-            {visibleQueueJobs.map((job) => (
-              <div
-                className={`queue-item ${job.status} ${job.sourceRemovalStatus === 'kept' ? 'source-kept' : ''}`}
-                key={job.id}
-              >
-                <div className="queue-row">
-                  <FileIcon
-                    row={{
-                      key: job.id,
-                      kind: 'file',
-                      name: job.name,
-                      size: job.size,
-                      modified: 0,
-                      type: extensionFor(job.name)
-                    }}
-                  />
-                  <div className="queue-main">
-                    <strong>{job.name}</strong>
-                    <span>
-                      {job.operation === 'move' && job.sourceRemovalStatus === 'removed'
-                        ? 'moved'
-                        : job.operation === 'move' && job.sourceRemovalStatus === 'kept'
-                          ? 'copied; source kept'
-                          : job.status}{' '}
-                      ·{' '}
-                      {job.direction === 'upload'
-                        ? 'to phone'
-                        : 'to Mac'}{' '}
-                      ·{' '}
-                      {formatBytes(job.bytesTransferred)} / {formatBytes(job.totalBytes || job.size)}
-                    </span>
-                    {job.direction === 'download' && job.renamedDestination && (
-                      <span className="queue-rename-note">
-                        Saved as {fileNameFromPath(job.destinationPath)} so nothing is overwritten.
-                      </span>
-                    )}
-                    {job.direction === 'upload' && job.collisionAction === 'keep-both' && job.uploadName && (
-                      <span className="queue-rename-note">
-                        Saving as {job.uploadName} so nothing is overwritten.
-                      </span>
-                    )}
-                    {job.direction === 'upload' && job.collisionAction === 'replace' && (
-                      <span className="queue-rename-note">
-                        The existing phone file stays in place until this copy is verified.
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div className="progress-track">
-                  <div
-                    className="progress-fill"
-                    style={{
-                      width: `${Math.min(
-                        100,
-                        ((job.bytesTransferred || 0) / Math.max(job.totalBytes || job.size || 1, 1)) * 100
-                      )}%`
-                    }}
-                  />
-                </div>
-                <div className="queue-meta">
-                  {job.status === 'completed' ? (
-                    <span>Finished</span>
-                  ) : job.status === 'failed' ? (
-                    <span>Failed</span>
-                  ) : job.status === 'canceled' ? (
-                    <span>Canceled</span>
-                  ) : (
-                    <>
-                      <span>{formatBytes(job.speedBytesPerSecond)}/s</span>
-                      <span>ETA {formatDuration(job.etaSeconds)}</span>
-                    </>
-                  )}
-                </div>
-                {job.error && (
-                  <div className="job-error">
-                    {job.error}{job.promiseId ? ' Drag again.' : ''}
-                  </div>
-                )}
-                {job.status === 'completed' && job.resultMessage && (
-                  <div className={`job-result ${job.sourceRemovalStatus === 'kept' ? 'warning' : ''}`}>
-                    {job.resultMessage}
-                  </div>
-                )}
-                <div className="job-actions">
-                  {(job.status === 'queued' || job.status === 'active') && (
-                    <button className="icon-button" title="Cancel" onClick={() => void window.mtp.cancelTransfer(job.id)}>
-                      <X size={14} />
-                    </button>
-                  )}
-                  {!job.promiseId &&
-                    !(job.direction === 'upload' && job.collisionAction === 'replace') &&
-                    (job.status === 'failed' || job.status === 'canceled') && (
-                    <button
-                      className="icon-button"
-                      title="Retry"
-                      onClick={() => void window.mtp.retryTransfer(job.id)}
-                    >
-                      <RotateCcw size={14} />
-                    </button>
-                  )}
-                  {job.status === 'completed' && job.direction === 'download' && (
-                    <button
-                      className="icon-button"
-                      title="Reveal in Finder"
-                      onClick={() => void window.mtp.revealInFinder(job.destinationPath)}
-                    >
-                      <ExternalLink size={14} />
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-            {!visibleQueueJobs.length && <div className="empty-note">Transfer queue is empty.</div>}
-          </div>
         </aside>
         </section>
       )}

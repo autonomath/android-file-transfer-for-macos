@@ -33,10 +33,10 @@ For an authorized Pixel 9 test device, identify it locally with `adb devices` an
 - Opening internal storage shows root folders in the compact table.
 - If Internal storage opens but libmtp returns no root folders, confirm the app shows a retryable folder error instead of silently saying the phone has no items.
 - Breadcrumb, back, forward, and up navigation work.
-- Click the phone table, use Up/Down to move selection, Enter/Right Arrow to open a folder, Left Arrow or Cmd/Ctrl+B to go up, Cmd/Ctrl+1 to focus the phone pane, Cmd/Ctrl+2 to focus the Mac pane, Cmd/Ctrl+A to select visible rows, Cmd/Ctrl+F to focus Filter, Cmd/Ctrl+R to check the phone now, Cmd/Ctrl+N to open New Folder, Cmd/Ctrl+D or F2 to rename one phone item, Backspace/Delete to request permanent deletion, Cmd/Ctrl+C then Cmd/Ctrl+V to queue the selected phone files/folders to the Mac pane, and Cmd/Ctrl+Shift+C or Cmd/Ctrl+Enter to queue them immediately.
+- Click the phone table, use Up/Down to move selection, Enter/Right Arrow or Cmd+Down to open a folder, Left Arrow or Cmd+[ to go back, Cmd+] to go forward, Cmd+Up to open the enclosing folder, Cmd/Ctrl+1 to focus the phone pane, Cmd/Ctrl+2 to focus the Mac pane, Cmd/Ctrl+A to select visible rows, Cmd/Ctrl+F to focus Filter, Cmd/Ctrl+R or the toolbar Refresh button to relist the open phone folder (or check the phone when no storage is open), Cmd/Ctrl+N to open New Folder, Cmd/Ctrl+D or F2 to rename one phone item, Backspace/Delete to request permanent deletion, Cmd/Ctrl+C then Cmd/Ctrl+V to queue the selected phone files/folders to the Mac pane, and Cmd/Ctrl+Shift+C or Cmd/Ctrl+Enter to queue them immediately.
 - With no file or folder selected, press Cmd/Ctrl+C and Cmd/Ctrl+Shift+C; confirm nothing happens and no transfer warning appears.
 - In phone grid view, confirm Arrow Left/Right move by tile, Arrow Up/Down move by one grid row, Shift+Arrow extends selection, and Enter opens the selected tile.
-- Click the Mac pane, use Up/Down to move selection, Enter/Right Arrow to open a folder, Left Arrow or Cmd/Ctrl+B to go to the parent folder, Cmd/Ctrl+A to select visible Mac items, Cmd/Ctrl+C then Cmd/Ctrl+V to queue selected Mac items to the open phone folder, and Cmd/Ctrl+Shift+C or Cmd/Ctrl+Enter to copy the selected Mac items immediately.
+- Click the Mac pane, use Up/Down to move selection, Enter/Right Arrow or Cmd+Down to open a folder, Left Arrow or Cmd+[ to go back, Cmd+] to go forward, Cmd+Up to open the enclosing folder, Cmd/Ctrl+R or the toolbar Refresh button to reload the folder, Cmd/Ctrl+A to select visible Mac items, Cmd/Ctrl+C then Cmd/Ctrl+V to queue selected Mac items to the open phone folder, and Cmd/Ctrl+Shift+C or Cmd/Ctrl+Enter to copy the selected Mac items immediately.
 - In Mac grid view, confirm Arrow Left/Right move by tile, Arrow Up/Down move by one grid row, Shift+Arrow extends selection, Enter opens the selected tile, and dragging a tile still starts a normal macOS file drag.
 - In the phone table or grid, Cmd/Ctrl-click two separated rows to toggle them, then Shift-click another row and confirm the visible range from the last anchor is selected.
 - In the Mac pane, Cmd/Ctrl-click two separated rows to toggle them, then Shift-click another row and confirm the visible range from the last anchor is selected.
@@ -45,7 +45,7 @@ For an authorized Pixel 9 test device, identify it locally with `adb devices` an
 - Right-click a phone file and confirm the menu offers Copy to Mac, Move to the named Mac folder, Rename, and Delete Permanently without a separate preparation command. For a folder selection, confirm Move is disabled while Copy, Rename, and permanent Delete remain available where valid.
 - Right-click a Mac file and confirm the menu offers Copy to Phone, Move to the named phone folder, and Reveal in Finder. For a folder selection, confirm Move is disabled while Copy remains available; folders also offer Open Folder.
 - Right-click empty space in each pane and confirm pane-level actions such as Check Phone Now, Refresh Mac Folder, Parent Folder, Choose Mac Folder, and New Phone Folder are understandable and enabled only when valid.
-- From the macOS menu bar, confirm File > New Folder, File > Check Phone Now, Edit > Rename Selected Item, Edit > Delete Selected Items, Edit > Copy File Selection, Edit > Paste File Selection, Edit > Copy to Queue, View > Folder Up, View > Focus Phone Pane, View > Focus Mac Pane, View > List/Grid View, View > Show/Hide Hidden Files, View > Light/Dark/System Appearance, File/Help > Open Log, and File > Retry Phone Connection trigger the same active-pane actions as the toolbar or shortcuts.
+- From the macOS menu bar, confirm File > New Folder, File > Refresh, Edit > Rename Selected Item, Edit > Delete Selected Items, Edit > Copy File Selection, Edit > Paste File Selection, Edit > Copy to Queue, Go > Back, Go > Forward, Go > Enclosing Folder, View > Focus Phone Pane, View > Focus Mac Pane, View > List/Grid View, View > Show/Hide Hidden Files, View > Light/Dark/System Appearance, File/Help > Open Log, and File > Retry Phone Connection trigger the same active-pane actions as the toolbar or shortcuts.
 - Use the title-bar appearance control to switch between light, system, and dark modes; confirm tables, queue cards, dialogs, and connection help remain readable.
 - Install the signed app in Applications. Choose Help > Check for Updates and confirm it reports the current version. With a newer test release, confirm the compact Update action appears, no ZIP downloads before it is clicked, and clicking it downloads the matching architecture. Confirm Restart to update appears only after the download completes, ordinary quit does not install the update, and an explicit restart launches the new version. During an active transfer or phone mutation, confirm restart is refused until work finishes. With the network disabled, confirm the manual check gives a short offline error while the daily automatic check stays silent. Also confirm an app launched from a mounted DMG, Downloads, a translocated path, or an unwritable location offers View Release with an explanation instead of an in-place update.
 - Change the phone pane to grid while leaving the Mac pane in list view, relaunch, and confirm each pane remembers its own view mode.
@@ -90,7 +90,7 @@ For an authorized Pixel 9 test device, identify it locally with `adb devices` an
 - Drag a large phone file to a destination volume with too little space; confirm the promise fails without a visible partial file and tells the user to free space and drag again.
 - Drag a phone file into the app's Mac pane and confirm it copies directly into the currently displayed Mac folder.
 - Select a small phone folder and click Copy to Mac; confirm the queue contains the files inside the folder under a matching Mac folder.
-- While that folder copy is being planned, confirm the queue pane shows Preparing folder copy with an indeterminate progress bar and live file/folder counts before normal transfer jobs appear.
+- While that folder copy is being planned, confirm the transfer status strip under the phone file list shows Preparing folder copy with an indeterminate progress bar and live file/folder counts before normal transfer jobs appear.
 - During folder copy preparation, click Stop; confirm the Preparing card disappears, the app says Nothing was copied, and no transfer jobs are queued.
 - After a copied phone folder finishes, reveal it in Finder and confirm the folder modified date matches the phone row after child copies finish.
 - Copy or drag an empty phone folder to the Mac and confirm an empty Mac folder is created instead of a no-files error.
@@ -113,6 +113,8 @@ For an authorized Pixel 9 test device, identify it locally with `adb devices` an
 - Reveal in Finder opens the copied file location.
 - Queue two or more copies, click Cancel All, and confirm queued/active jobs become canceled without opening another MTP session.
 - Click Clear Finished after completed/canceled/failed jobs exist; finished items are removed while active or queued jobs remain.
+- The transfer status strip under the phone file list stays one summary line plus a progress bar; clicking the summary expands the job list upward and clicking again collapses it.
+- Move a phone folder with a subfolder to the Mac, and a Mac folder to the phone: every file arrives, and each source folder disappears only after it is empty. Make one file fail (for example, no free space) and confirm its folder and the folders above it stay.
 - Start a large copy and cancel it; the queue shows canceled and the log shows the single MTP worker was stopped.
 - Quit the app after a normal phone-file session is open; confirm the log says `sent graceful quit to MTP session` instead of immediately killing the helper with `SIGTERM`.
 - Retry the canceled or failed copy; it queues again.
@@ -131,6 +133,19 @@ For an authorized Pixel 9 test device, identify it locally with `adb devices` an
 - Confirm Details remains collapsed by default and contains the structured phase, physical connection ID, USB session ID, helper path, and bounded stderr when opened.
 - Confirm the log contains no libmtp reset attempt, overlapping helper, privileged runner, or duplicate session. Automatic attempts must be visible as **Still trying** in the UI.
 
+## Large Files
+
+- With at least one video over 50 MB in DCIM/Camera, open Large files from the sidebar. Confirm the scan starts on its own, Camera, Movies, and Download are listed before Pictures in the log, and the video appears with its folder and size.
+- Double-click a result, then use right-click > Show in Folder on another. Confirm the phone browser opens that folder with the file selected and scrolled into view, and Back returns to Large files without a new scan.
+- In Large files, confirm Cmd+[ / Left Arrow returns to the previous location and Cmd+] comes back, Cmd+Up returns to the storage list, and Cmd+R or the toolbar Refresh button reruns the scan at the selected depth instead of rechecking the phone connection.
+- Select results with click, Shift-click, Cmd-click, Cmd+A, and the tickboxes. Confirm a tickbox adds or removes only its own file, including the last selected one, the header tickbox selects all or none, the transfer bar totals the selection, and Copy queues it to the open Mac folder like any other copy.
+- Copy a disposable file over 50 MB into the phone's Download folder and Rescan. Move it to the Mac and confirm it leaves Large files when the move completes. Copy it back, Delete it from Large files, and confirm it does not return after Rescan or when Download is opened in the browser.
+- Choose Deeper, then Whole phone. Confirm each starts a new scan and Stop ends it right away with the number of folders checked.
+- Reconnect the phone and reopen Large files. Confirm earlier results appear immediately, dimmed with a last seen label, become live as their folders are checked again, and a file deleted on the phone in between disappears once its folder is checked.
+- While that scan is still running, select several dimmed results and Copy or Move them to the Mac. Confirm the button is enabled, the scan shows Stopped right away, the queue says it is finding the files on the phone, the scan status showed an item count for a large folder such as DCIM/Camera, the transfer's confirmation appears within a few seconds instead of waiting for that folder, the session stays open (no reconnect in the log), and no further scan listings run in between, and a file deleted on the phone in between is reported and removed from the list.
+- In the Mac pane, select one folder. Confirm the phone transfer button and right-click Move name that folder and phone files go into it; with no folder or several items selected, they go into the open Mac folder.
+- While a large copy runs, open Large files. Confirm the status says the scan may pause while files copy, and browsing still responds after closing the view.
+
 ## Failure-State Checks
 
 - Phone locked or waiting for Android permission: the opening panel should stay visible instead of an empty table and tell the user to keep the phone unlocked and tap Allow if Android asks.
@@ -143,6 +158,7 @@ For an authorized Pixel 9 test device, identify it locally with `adb devices` an
 Some Android devices remain visible to IOKit in File Transfer mode while OpenSession returns `PTP_ERROR_IO`. Treat this as **phone did not answer**, never as readable storage or a macOS permission problem.
 
 - With `ptpcamerad` shown as the selected phone's `UsbExclusiveOwner`, launch the app. Confirm it explains the conflict and waits without terminating the daemon or any client app.
+- Quit the camera-import client (for example Google Drive) while `ptpcamerad` still owns the phone. Confirm the panel says macOS is holding the phone, the stale Quit message is gone, and Release the phone frees it and connects within a few seconds. With a client still running, confirm Release is not offered.
 - Confirm no camera-service process is terminated, regardless of its owner or whether a client was identified.
 - Confirm `mtp-json status` can still report the raw Android USB interface without opening a file session.
 - Confirm a failed open keeps the browser hidden, shows **Still trying to open your phone files...**, and does not invoke a password prompt or USB reset.
@@ -169,9 +185,9 @@ npm run mtp:smoke -- --timeout-ms=300000 --min-size=10000000
 
 ## Respectful USB conflict recovery
 
-- On a dedicated test device, verify Keep waiting leaves all apps running while checks continue automatically.
+- On a dedicated test device, verify that leaving the conflict panel open keeps all apps running while checks continue automatically.
 - A verified Google Drive client must show the sync and cloud-only-file impact before Request Google Drive to quit. Other clients must explain possible imports and unsaved work.
 - Click Request Quit in a controlled fixture. The app should receive its normal macOS Quit request and can show a save prompt or decline. The transfer app must never escalate to force-quit, and must report delivery rather than claim the other app has exited.
 - Change the USB attachment, camera-service PID, or client process before clicking an old Quit offer. Nothing should be closed.
-- An unidentified owner offers waiting and manual guidance without a guessed Quit target.
+- An unidentified owner lists open camera-import apps as possible causes, each labeled **Possible cause** with the same normal Quit request, and never names them as the confirmed owner in the status line.
 - Verify the busy message stays stable during polling and normal file access resumes when the connection is free.

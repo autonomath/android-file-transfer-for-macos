@@ -19,6 +19,13 @@ Download the DMG for your Mac from the [latest GitHub release](https://github.co
 
 Both the app and DMG are signed with an Apple Developer ID, notarized by Apple, and stapled for Gatekeeper. Release checksums are published in `SHA256SUMS.txt`.
 
+Homebrew users can install the same signed DMG through the [project tap](https://github.com/autonomath/homebrew-tap):
+
+```sh
+brew tap autonomath/tap
+brew install --cask autonomath/tap/android-file-transfer-for-macos
+```
+
 ## What it does
 
 - Browses Android storage and Mac folders with independent list and grid views.
@@ -36,6 +43,7 @@ Both the app and DMG are signed with an Apple Developer ID, notarized by Apple, 
 - Right-click context menus expose the same guarded actions as the toolbar and keyboard shortcuts.
 - Shift-click range selection and selection summaries work in both file panes.
 - Show or hide hidden files independently in each pane; hidden files stay hidden by default.
+- Finds large files on the phone, checking camera, movies, downloads, messaging app media, and game data first, with Deeper and Whole phone options. Results can be selected, copied, moved, dragged, or deleted like any phone folder, and are remembered per phone, so the next search shows them right away while their folders are checked again.
 - Recursive copies show Preparing folder copy feedback and a Stop action before any transfer jobs are queued.
 - Keeps routine polling and empty keyboard actions quiet.
 - Checks the project's published update metadata at most once per day and shows an Update action only when a newer version exists; Help > Check for Updates gives an immediate result. Download and restart require separate, explicit actions.
@@ -44,7 +52,7 @@ Both the app and DMG are signed with an Apple Developer ID, notarized by Apple, 
 - Gives distinct guidance for a locked phone or Android Allow prompt.
 - Static startup and renderer-crash fallbacks prevent a bundle or display failure from leaving an empty white window.
 
-Phone rename and permanent delete verify the selected object's ID, storage, parent, kind, current name, and available file size/time immediately before changing it. Delete has no Trash or Undo and always requires a native confirmation. Uploads read from the same Mac file descriptor whose identity was queued, so a changed or swapped source is rejected. Same-name replacement is explicit: the new phone file uploads under a temporary name, is verified, and the old file remains under a backup name until the new name is verified. Folder Move is not offered.
+Phone rename and permanent delete verify the selected object's ID, storage, parent, kind, current name, and available file size/time immediately before changing it. Delete has no Trash or Undo and always requires a native confirmation. Uploads read from the same Mac file descriptor whose identity was queued, so a changed or swapped source is rejected. Same-name replacement is explicit: the new phone file uploads under a temporary name, is verified, and the old file remains under a backup name until the new name is verified. Folder Move moves every file inside the same verified way, then removes each source folder only once it is empty; a folder that still holds anything is kept.
 
 ## Requirements
 
@@ -70,6 +78,7 @@ USB visibility does not mean the phone has answered the file request yet. Each o
 - No analytics, telemetry, advertising, account, or network file transfer.
 - Update checks request this project's published GitHub Releases update manifest. GitHub receives ordinary HTTPS connection metadata; the app sends no phone details, file names, or file contents. The update ZIP is downloaded only after you choose Update, and installation requires a separate restart choice.
 - File transfers stay between the connected Android device and the Mac.
+- Large-file search results (file names, folders, sizes, and dates) are remembered only on this Mac, per phone, to speed up the next search.
 - Copy Report excludes phone file listings and contains bounded connection diagnostics only.
 - Release builds use hardened runtime, Developer ID signing, Apple notarization, and Gatekeeper verification.
 - Security reports should follow [SECURITY.md](SECURITY.md).

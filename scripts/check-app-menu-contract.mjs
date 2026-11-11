@@ -27,8 +27,11 @@ assert.match(main, /label:\s*'Paste File Selection'[\s\S]*'paste-selection'/, 'M
 assert.match(main, /accelerator:\s*'CommandOrControl\+Shift\+C'[\s\S]*'copy-to-queue'/, 'Menu must expose Copy to Queue.');
 assert.match(main, /label:\s*'Rename Selected Item'[\s\S]*'rename-selected-item'/, 'Menu must expose active-pane rename.');
 assert.match(main, /label:\s*'Delete Selected Items\.\.\.'[\s\S]*'delete-selected-items'/, 'Menu must expose active-pane delete or Trash.');
-assert.match(main, /accelerator:\s*'CommandOrControl\+B'[\s\S]*'folder-up'/, 'Menu must expose Folder Up.');
-assert.match(main, /label:\s*'Check Phone Now'[\s\S]*accelerator:\s*'CommandOrControl\+R'[\s\S]*'refresh'/, 'Menu must expose Check Phone Now.');
+assert.match(main, /label:\s*'Back',\s*accelerator:\s*'CommandOrControl\+\['[\s\S]*'go-back'/, 'Go menu must expose Back on Cmd+[.');
+assert.match(main, /label:\s*'Forward',\s*accelerator:\s*'CommandOrControl\+\]'[\s\S]*'go-forward'/, 'Go menu must expose Forward on Cmd+].');
+assert.match(main, /label:\s*'Enclosing Folder',\s*accelerator:\s*'CommandOrControl\+Up'[\s\S]*'folder-up'/, 'Go menu must expose Enclosing Folder on Cmd+Up.');
+assert.doesNotMatch(main, /'CommandOrControl\+B'/, 'Cmd+B is not a Mac navigation shortcut.');
+assert.match(main, /label:\s*'Refresh',\s*accelerator:\s*'CommandOrControl\+R'[\s\S]*'refresh'/, 'Menu must expose Refresh.');
 assert.match(main, /accelerator:\s*'CommandOrControl\+1'[\s\S]*'focus-phone'/, 'Menu must expose Focus Phone Pane.');
 assert.match(main, /accelerator:\s*'CommandOrControl\+2'[\s\S]*'focus-mac'/, 'Menu must expose Focus Mac Pane.');
 assert.match(main, /label:\s*'Show\/Hide Hidden Files'[\s\S]*'toggle-hidden-files'/, 'Menu must expose hidden-file visibility.');
@@ -45,6 +48,9 @@ assert.match(app, /case 'copy-selection':[\s\S]*copyActivePaneSelectionToClipboa
 assert.match(app, /case 'paste-selection':[\s\S]*pasteTransferClipboard\(\)/, 'Renderer menu handler must paste the file selection.');
 assert.match(app, /case 'copy-to-queue':[\s\S]*copyActivePaneSelectionToQueue\(\)/, 'Renderer menu handler must copy to queue.');
 assert.match(app, /case 'folder-up':[\s\S]*goUpActivePane\(\)/, 'Renderer menu handler must go folder up.');
+assert.match(app, /case 'go-back':[\s\S]*goBackActivePane\(\)/, 'Renderer menu handler must go back in the active pane.');
+assert.match(app, /case 'go-forward':[\s\S]*goForwardActivePane\(\)/, 'Renderer menu handler must go forward in the active pane.');
+assert.match(app, /case 'refresh':\s*refreshActivePane\(\)/, 'Renderer menu handler must refresh the active pane.');
 assert.match(app, /case 'focus-phone':[\s\S]*focusPhonePane\(\)/, 'Renderer menu handler must focus the phone pane.');
 assert.match(app, /case 'focus-mac':[\s\S]*focusMacPane\(\)/, 'Renderer menu handler must focus the Mac pane.');
 assert.match(app, /case 'toggle-hidden-files':[\s\S]*toggleActivePaneHiddenFiles\(\)/, 'Renderer menu handler must toggle hidden-file visibility in the active pane.');

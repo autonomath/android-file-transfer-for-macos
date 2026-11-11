@@ -21,14 +21,12 @@ export interface PublishTemporaryFileOptions {
   temporaryPath: string;
   destinationPath: string;
   expectedSize: number;
-  allowExistingEquivalent?: boolean;
   onCollision?: (currentPath: string) => string;
 }
 
 export interface PublishedTemporaryFile {
   destinationPath: string;
   size: number;
-  usedExisting: boolean;
 }
 
 export interface ReplaceTemporaryFileOptions {
@@ -200,7 +198,7 @@ export function replaceTemporaryFile(
     );
   }
 
-  return { destinationPath: options.destinationPath, size: temporaryStat.size, usedExisting: false };
+  return { destinationPath: options.destinationPath, size: temporaryStat.size };
 }
 
 export function publishTemporaryFile(
@@ -211,17 +209,6 @@ export function publishTemporaryFile(
   let destinationPath = options.destinationPath;
   while (true) {
     if (existsSync(destinationPath)) {
-      if (options.allowExistingEquivalent) {
-        const existingStat = lstatSync(destinationPath);
-        if (
-          existingStat.isFile() &&
-          !existingStat.isSymbolicLink() &&
-          existingStat.size === temporaryStat.size
-        ) {
-          unlinkSync(options.temporaryPath);
-          return { destinationPath, size: temporaryStat.size, usedExisting: true };
-        }
-      }
       if (!options.onCollision) {
         throw new Error(`A different item already exists at ${destinationPath}.`);
       }
@@ -237,7 +224,7 @@ export function publishTemporaryFile(
         unlinkSync(destinationPath);
         throw error;
       }
-      return { destinationPath, size: temporaryStat.size, usedExisting: false };
+      return { destinationPath, size: temporaryStat.size };
     } catch (error) {
       const nodeError = error as NodeJS.ErrnoException;
       if (nodeError.code !== 'EEXIST' || !options.onCollision) {

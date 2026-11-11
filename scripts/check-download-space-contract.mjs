@@ -19,6 +19,12 @@ const [main, app, readme, checklist, architecture] = await Promise.all([
 
 assert.match(main, /statfsSync,/, 'Main process must import statfsSync for native free-space checks.');
 assert.match(main, /function availableBytesForDirectory\(directory: string\)/, 'Main process must have a Mac free-space helper.');
+assert.match(
+  main,
+  /function availableBytesForDirectory[\s\S]*?volumeAvailableBytes\?\.\(directory\)[\s\S]*?statfsSync\(directory\)/,
+  'Free space must use the Finder figure (including purgeable space) and fall back to statfs only when it is unavailable.'
+);
+assert.match(main, /DOWNLOAD_FREE_SPACE_MARGIN_BYTES/, 'Downloads must keep a free-space margin for macOS.');
 assert.match(main, /statfsSync\(directory\)/, 'Free-space helper must read the target filesystem.');
 assert.match(main, /statSync\(directory\)[\s\S]*\.dev/, 'Free-space reservations must group folders by filesystem device.');
 assert.match(main, /function downloadSpaceError\([\s\S]*reservedBytesByVolume: Map<string, number>/, 'Mac-side phone transfers must reserve free space across a batch.');
@@ -33,18 +39,23 @@ assert.match(main, /Free space on the Mac, then drag the item again\./, 'Promise
 assert.match(main, /function applyDownloadSpacePreflight/, 'Main process must mark impossible Mac-side transfers before starting transfer workers.');
 assert.match(
   main,
-  /function enqueueDownloads[\s\S]*const reservedBytesByVolume = new Map<string, number>\(\)[\s\S]*applyDownloadSpacePreflight\(job, reservedBytesByVolume\)[\s\S]*sendTransferEvent\(canQueue \? 'queued' : 'failed', job\)/,
+  /function pendingDownloadBytesByVolume\(\): Map<string, number> \{[\s\S]*?job\.direction !== 'download' \|\| \(job\.status !== 'queued' && job\.status !== 'active'\)[\s\S]*?String\(statSync\(job\.destinationDirectory\)\.dev\)[\s\S]*?catch \{\s*continue;[\s\S]*?job\.status === 'active' \? job\.size - job\.bytesTransferred : job\.size/,
+  'Free-space preflight must reserve the untransferred bytes of downloads already queued or active on the same volume.'
+);
+assert.match(
+  main,
+  /function enqueueDownloads[\s\S]*const reservedBytesByVolume = pendingDownloadBytesByVolume\(\)[\s\S]*applyDownloadSpacePreflight\(job, reservedBytesByVolume\)[\s\S]*sendTransferEvent\(canQueue \? 'queued' : 'failed', job\)/,
   'Queued downloads must run free-space preflight and emit failed jobs immediately when blocked.'
 );
 assert.match(
   main,
-  /function enqueuePromisedDownloads[\s\S]*const reservedBytesByVolume = new Map<string, number>\(\)[\s\S]*applyDownloadSpacePreflight\(job, reservedBytesByVolume\)/,
+  /function enqueuePromisedDownloads[\s\S]*const reservedBytesByVolume = pendingDownloadBytesByVolume\(\)[\s\S]*applyDownloadSpacePreflight\(job, reservedBytesByVolume\)/,
   'Destination-aware promised downloads must run free-space preflight.'
 );
 assert.match(
   main,
-  /job\.direction === 'download' && !applyDownloadSpacePreflight\(job, new Map\(\)\)/,
-  'Retrying an ordinary phone download must re-check free space.'
+  /job\.direction === 'download' && !applyDownloadSpacePreflight\(job, pendingDownloadBytesByVolume\(\)\)\) \{[\s\S]*?\n  job\.status = 'queued';/,
+  'Retrying an ordinary phone download must re-check free space against earlier downloads, before the job counts as queued itself.'
 );
 
 assert.match(app, /failedBeforeTracking/, 'Folder-copy tracking must account for jobs that fail before tracking starts.');

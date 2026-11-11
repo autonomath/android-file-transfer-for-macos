@@ -47,6 +47,7 @@ export CSC_NAME="${CSC_CERTIFICATE_NAME#Developer ID Application: }"
 npm run check
 npm run check:public-source
 npm audit --omit=dev --audit-level=high
+node "$ROOT/scripts/check-electron-audit.mjs"
 node "$ROOT/scripts/check-macho.mjs" --root "$ROOT/resources" --arch "$ARCH" --max-macos "$MINIMUM_MACOS"
 
 npx electron-builder --mac zip "$BUILDER_ARCH_FLAG" --publish never \

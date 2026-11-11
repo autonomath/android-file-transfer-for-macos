@@ -27,8 +27,9 @@ assert.doesNotMatch(iconSource, /openmtp|ganeshrvel/i, 'Icon source must not reu
 const runDev = readFileSync(runDevPath, 'utf8');
 const mainSource = readFileSync(mainSourcePath, 'utf8');
 assert.match(packageJson.scripts?.dev ?? '', /scripts\/run-dev\.sh/, 'npm run dev must use the branded launcher.');
-assert.match(runDev, /CFBundleDisplayName Android File Transfer for macOS/, 'The development app bundle must use the product name.');
-assert.match(runDev, /CFBundleExecutable Android File Transfer for macOS/, 'The development executable must use the product name.');
+assert.match(runDev, /CFBundleDisplayName Android File Transfer Dev/, 'The development app bundle must be branded but never share the real app name.');
+assert.match(runDev, /CFBundleExecutable Android File Transfer Dev/, 'The development executable must be branded but never share the real app name.');
+assert.doesNotMatch(runDev, /DEV_APP=.*Android File Transfer for macOS\.app/, 'A same-named dev bundle shows up as a second copy of the real app.');
 assert.match(runDev, /CFBundleIconFile app-icon\.icns/, 'The development app bundle must use the product icon.');
 assert.match(runDev, /ELECTRON_EXEC_PATH/, 'electron-vite must launch the branded development bundle.');
 assert.match(

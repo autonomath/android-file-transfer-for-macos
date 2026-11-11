@@ -33,7 +33,20 @@ assert.match(app, /const connectionStateClass =/, 'Top connection pill must deri
 assert.match(app, /queueSummary\.activeTransfers[\s\S]*'transfer-active'/, 'Top connection pill must show active transfers.');
 assert.match(app, /role="status"[\s\S]*aria-live="polite"/, 'Top connection pill must announce transfer-active state changes.');
 assert.match(app, /'Completed'/, 'Completed-only queues must be labeled as completed, not transferring.');
-assert.match(app, /<span>Finished<\/span>/, 'Completed queue items must stop showing stale speed and ETA metadata.');
+const transferEventHandler = app.slice(app.indexOf('window.mtp.onTransferEvent('), app.indexOf('queueSummary.cancellable > 0 || (!stalePhoneFolderKeys'));
+assert.ok(transferEventHandler.length > 0, 'Transfer event handler must remain present.');
+assert.doesNotMatch(transferEventHandler, /loadFolder\(/, 'A finished file must not re-list the phone folder; listings would queue behind every copy in a long batch.');
+assert.match(
+  app,
+  /queueSummary\.cancellable > 0 \|\| \(!stalePhoneFolderKeys\.current\.size[\s\S]*removeEmptiedMoveFolders\(cleanup\)[\s\S]*loadFolder\(location\.storageId, location\.folderId, true\)/,
+  'Phone folders changed by transfers must be re-listed once, after the queue drains.'
+);
+assert.match(app, /next\[key\] = \(next\[key\] \?\? \[\]\)\.filter\(\(item\) => !ids\.has\(item\.id\)\)/, 'Moved files must leave the open phone folder immediately, without a phone listing.');
+assert.match(
+  app,
+  /job\.status === 'active'\s*\? ` · \$\{formatBytes\(job\.speedBytesPerSecond\)\}\/s · ETA/,
+  'Only active queue items may show speed and ETA, so finished ones never show stale numbers.'
+);
 assert.doesNotMatch(app, /activePreparations|queuedPreparations|preparationOnly/, 'Removed drag-cache preparation must not remain in queue state.');
 assert.match(app, /transferredBytes/, 'Queue summary must track transferred bytes.');
 assert.match(app, /speedBytesPerSecond/, 'Queue summary must track aggregate transfer speed.');
@@ -65,6 +78,33 @@ assert.match(
   'Normal transfer progress must refresh the session command timeout.'
 );
 assert.match(main, /TRANSFER_COMMAND_IDLE_TIMEOUT_MS/, 'Transfer jobs must use the transfer idle timeout constant.');
+for (const enqueue of ['enqueueDownloads', 'enqueueUploads']) {
+  const start = main.indexOf(`function ${enqueue}(`);
+  assert.match(
+    main.slice(start, main.indexOf('\n}\n', start)),
+    /processTransferQueue\(\);[^}]*return jobs\.map\(cloneJob\);$/,
+    `${enqueue} must return job copies taken after starting the queue, or its reply overwrites a failed or started event and the row stays queued.`
+  );
+}
+for (const enqueue of ['enqueueDownloads', 'enqueuePromisedDownloads', 'enqueueUploads']) {
+  const start = main.indexOf(`function ${enqueue}(`);
+  assert.match(
+    main.slice(start, main.indexOf('\n}\n', start)),
+    /\): TransferJob\[\] \{\s*forgetCompletedJobs\(\);/,
+    `${enqueue} must drop completed jobs before queueing a batch, or the job map grows for the whole session.`
+  );
+}
+assert.match(
+  main,
+  /function forgetCompletedJobs\(\): void \{\s*for \(const \[jobId, job\] of transferJobs\) \{\s*if \(job\.status === 'completed'\) \{\s*transferJobs\.delete\(jobId\);/,
+  'Only completed jobs may be dropped; failed and canceled jobs must stay for Retry.'
+);
+assert.match(
+  main.slice(main.indexOf('function handleTransferPayload('), main.indexOf('function transferCommandForJob(')),
+  /job\.etaSeconds = [^\n]*\n\s*const progressSentAt = performance\.now\(\);\s*if \(progressSentAt - lastTransferProgressSentAt >= TRANSFER_PROGRESS_EVENT_INTERVAL_MS\) \{\s*lastTransferProgressSentAt = progressSentAt;\s*sendTransferEvent\('progress', job\);/,
+  'Transfer progress must update the job on every helper event but reach the renderer at most every interval, because each event re-renders the open phone folder.'
+);
+assert.match(main, /const TRANSFER_PROGRESS_EVENT_INTERVAL_MS = 250;/, 'Transfer progress must reach the renderer at most four times a second.');
 
 assert.match(styles, /\.queue-summary/, 'Queue summary must have dedicated styling.');
 assert.match(styles, /\.queue-total-progress/, 'Aggregate queue progress must have stable progress styling.');

@@ -33,6 +33,11 @@ assert.match(
 );
 
 const startup = section('async function ensureMtpSession(', 'async function runSessionCommand<');
+assert.match(
+  startup,
+  /while \(mtpSessionOpening\) \{\s*await mtpSessionOpening/,
+  'Concurrent callers must share one session open instead of spawning two helpers for one phone.'
+);
 assert.match(startup, /await waitForMtpSessionTeardown\(\);/);
 assert.match(startup, /if \(sessionProcess\) \{\s*await destroyMtpSession/);
 assert.equal((startup.match(/spawn\(helperPath, \['session'/g) ?? []).length, 1);

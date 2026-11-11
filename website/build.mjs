@@ -45,20 +45,10 @@ await rm(outputDir, { recursive: true, force: true });
 await mkdir(path.join(outputDir, "assets"), { recursive: true });
 await writeFile(path.join(outputDir, "index.html"), html);
 await writeFile(path.join(outputDir, ".nojekyll"), "");
-for (const file of ["styles.css", "script.js"]) {
-  await cp(path.join(websiteDir, file), path.join(outputDir, file));
-}
-let marketData = await readFile(path.join(websiteDir, "market-data.js"), "utf8");
-marketData = marketData.replaceAll("@@VERSION@@", manifest.version);
-assert.doesNotMatch(marketData, /@@[A-Z0-9_]+@@/, "Unresolved market data template token");
-await writeFile(path.join(outputDir, "market-data.js"), marketData);
+await cp(path.join(websiteDir, "styles.css"), path.join(outputDir, "styles.css"));
 for (const [source, name] of [
   ["build/app-icon.svg", "app-icon.svg"],
-  ["docs/project-graphic.svg", "project-graphic.svg"],
   ["docs/screenshot.png", "screenshot.png"],
-  ["marketing/assets/market-map.svg", "market-map.svg"],
-  ["marketing/assets/architecture.svg", "architecture.svg"],
-  ["marketing/assets/og-card.png", "og-card.png"],
 ]) {
   await cp(path.join(repoDir, source), path.join(outputDir, "assets", name));
 }

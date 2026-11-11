@@ -21,6 +21,7 @@ import type {
 const api: MtpApi = {
   getStatus: () => ipcRenderer.invoke('mtp:getStatus'),
   requestQuitUsbApp: (request) => ipcRenderer.invoke('mtp:requestQuitUsbApp', request),
+  releaseUsbConnection: (connectionId) => ipcRenderer.invoke('mtp:releaseUsbConnection', connectionId),
   scanInventory: () => ipcRenderer.invoke('mtp:scanInventory'),
   listFolder: (deviceIndex: number, deviceConnectionId: string, storageId: number, parentId: number) =>
     ipcRenderer.invoke('mtp:listFolder', deviceIndex, deviceConnectionId, storageId, parentId),
@@ -44,6 +45,7 @@ const api: MtpApi = {
   createLocalFolder: (request: CreateLocalFolderRequest) => ipcRenderer.invoke('local:createFolder', request),
   renameLocalItem: (request: RenameLocalItemRequest) => ipcRenderer.invoke('local:renameItem', request),
   trashLocalItems: (request: TrashLocalItemsRequest) => ipcRenderer.invoke('local:trashItems', request),
+  removeEmptyLocalFolders: (paths: string[]) => ipcRenderer.invoke('local:removeEmptyFolders', paths),
   setLocalModifiedTime: (path: string, modified: number) =>
     ipcRenderer.invoke('local:setModifiedTime', path, modified),
   getCommonMacFolders: () => ipcRenderer.invoke('local:getCommonFolders'),

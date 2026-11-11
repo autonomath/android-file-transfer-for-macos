@@ -10,8 +10,9 @@ fi
 
 SOURCE_APP="$ROOT/node_modules/electron/dist/Electron.app"
 DEV_ROOT="$ROOT/.cache/dev-electron"
-DEV_APP="$DEV_ROOT/Android File Transfer for macOS.app"
-DEV_EXECUTABLE="$DEV_APP/Contents/MacOS/Android File Transfer for macOS"
+# A distinct name keeps this runtime from passing for the real app in Spotlight, Launchpad and the Dock.
+DEV_APP="$DEV_ROOT/Android File Transfer Dev.app"
+DEV_EXECUTABLE="$DEV_APP/Contents/MacOS/Android File Transfer Dev"
 PLIST="$DEV_APP/Contents/Info.plist"
 ICON="$ROOT/build/icon.icns"
 STAMP="$DEV_ROOT/runtime.sha256"
@@ -28,7 +29,7 @@ fi
 
 FINGERPRINT="$({
   shasum -a 256 "$SOURCE_APP/Contents/Info.plist" "$SOURCE_APP/Contents/MacOS/Electron" "$ICON"
-  printf '%s\n' 'android-file-transfer-dev-bundle-v2'
+  printf '%s\n' 'android-file-transfer-dev-bundle-v3'
 } | shasum -a 256 | awk '{print $1}')"
 
 CURRENT_FINGERPRINT=""
@@ -44,9 +45,9 @@ if [[ ! -x "$DEV_EXECUTABLE" || "$CURRENT_FINGERPRINT" != "$FINGERPRINT" ]]; the
     /bin/cp -R "$SOURCE_APP" "$DEV_APP"
   fi
 
-  /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Android File Transfer for macOS" "$PLIST"
-  /usr/libexec/PlistBuddy -c "Set :CFBundleName Android File Transfer for macOS" "$PLIST"
-  /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable Android File Transfer for macOS" "$PLIST"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Android File Transfer Dev" "$PLIST"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleName Android File Transfer Dev" "$PLIST"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable Android File Transfer Dev" "$PLIST"
   /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier io.github.autonomath.androidfiletransfer.dev" "$PLIST"
   /usr/libexec/PlistBuddy -c "Set :CFBundleIconFile app-icon.icns" "$PLIST"
   /usr/libexec/PlistBuddy -c "Set :LSApplicationCategoryType public.app-category.utilities" "$PLIST"

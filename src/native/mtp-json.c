@@ -2,6 +2,7 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <math.h>
+#include <signal.h>
 #ifdef __APPLE__
 #include <CoreFoundation/CoreFoundation.h>
 #include <IOKit/IOKitLib.h>
@@ -1139,325 +1140,7 @@ static void print_inventory_device(int device_index,
   }
 }
 
-static int command_inventory(void) {
-  LIBMTP_raw_device_t *rawdevices = NULL;
-  LIBMTP_mtpdevice_t **opened_devices = NULL;
-  int *storage_modes = NULL;
-  int numrawdevices = 0;
-  int opened_count = 0;
-  LIBMTP_error_number_t err;
-  int first_device = 1;
-
-  LIBMTP_Init();
-  err = LIBMTP_Detect_Raw_Devices(&rawdevices, &numrawdevices);
-  if (err != LIBMTP_ERROR_NONE) {
-    printf("{\"ok\":false,\"state\":");
-    json_string(detect_error_state(err));
-    printf(",\"message\":");
-    json_string(detect_error_message(err));
-    printf(",\"devices\":[]}\n");
-    if (rawdevices != NULL) {
-      LIBMTP_FreeMemory(rawdevices);
-    }
-    return err == LIBMTP_ERROR_NO_DEVICE_ATTACHED ? 0 : 1;
-  }
-
-  opened_devices = calloc((size_t)numrawdevices, sizeof(LIBMTP_mtpdevice_t *));
-  storage_modes = calloc((size_t)numrawdevices, sizeof(int));
-  if (opened_devices == NULL || storage_modes == NULL) {
-    printf("{\"ok\":false,\"state\":\"memory-error\",\"message\":\"Unable to allocate memory while opening MTP devices.\",\"devices\":[]}\n");
-    LIBMTP_FreeMemory(rawdevices);
-    return 1;
-  }
-
-  for (int i = 0; i < numrawdevices; i++) {
-    opened_devices[i] = LIBMTP_Open_Raw_Device_Uncached(&rawdevices[i]);
-    if (opened_devices[i] != NULL) {
-      storage_modes[i] = prepare_device_storage(opened_devices[i], &rawdevices[i]);
-      if (storage_modes[i] == 0) {
-        LIBMTP_Release_Device(opened_devices[i]);
-        opened_devices[i] = NULL;
-      } else {
-        opened_count++;
-      }
-    }
-  }
-
-  if (opened_count == 0) {
-    printf("{\"ok\":false,\"state\":\"connect-error\",\"message\":");
-    json_string("The phone file session opened, but the device did not return usable storage information.");
-    printf(",\"devices\":[]}\n");
-    free(opened_devices);
-    free(storage_modes);
-    LIBMTP_FreeMemory(rawdevices);
-    return 1;
-  }
-
-  printf("{\"ok\":true,\"state\":\"connected\",\"message\":\"Inventory scan completed.\",\"devices\":[");
-
-  for (int i = 0; i < numrawdevices; i++) {
-    LIBMTP_mtpdevice_t *device = opened_devices[i];
-    if (device == NULL) {
-      continue;
-    }
-
-    if (!first_device) {
-      putchar(',');
-    }
-    first_device = 0;
-
-    print_inventory_device(i, &rawdevices[i], device, storage_modes[i]);
-    LIBMTP_Release_Device(device);
-  }
-
-  printf("]}\n");
-  free(opened_devices);
-  free(storage_modes);
-  LIBMTP_FreeMemory(rawdevices);
-  return 0;
-}
-
-static int command_reset(void) {
-  LIBMTP_raw_device_t *rawdevices = NULL;
-  int numrawdevices = 0;
-  LIBMTP_error_number_t mtp_err;
-  libusb_context *context = NULL;
-  libusb_device **devices = NULL;
-  libusb_device_handle *handle = NULL;
-  ssize_t device_count = 0;
-  int open_result = LIBUSB_ERROR_NOT_FOUND;
-  int reset_result = LIBUSB_ERROR_NOT_FOUND;
-
-  LIBMTP_Init();
-  mtp_err = LIBMTP_Detect_Raw_Devices(&rawdevices, &numrawdevices);
-  if (mtp_err != LIBMTP_ERROR_NONE || numrawdevices == 0) {
-    printf("{\"ok\":false,\"state\":");
-    json_string(detect_error_state(mtp_err));
-    printf(",\"message\":");
-    json_string(detect_error_message(mtp_err));
-    printf("}\n");
-    if (rawdevices != NULL) {
-      LIBMTP_FreeMemory(rawdevices);
-    }
-    return mtp_err == LIBMTP_ERROR_NO_DEVICE_ATTACHED ? 0 : 1;
-  }
-
-  LIBMTP_raw_device_t *target = &rawdevices[0];
-  int init_result = libusb_init(&context);
-  if (init_result != LIBUSB_SUCCESS) {
-    char message[256];
-    snprintf(message, sizeof(message), "Unable to start USB reset: %s.", libusb_error_name(init_result));
-    printf("{\"ok\":false,\"state\":\"connect-error\",\"message\":");
-    json_string(message);
-    printf("}\n");
-    LIBMTP_FreeMemory(rawdevices);
-    return 1;
-  }
-
-  device_count = libusb_get_device_list(context, &devices);
-  if (device_count < 0) {
-    char message[256];
-    snprintf(message, sizeof(message), "Unable to inspect USB devices for reset: %s.", libusb_error_name((int)device_count));
-    printf("{\"ok\":false,\"state\":\"connect-error\",\"message\":");
-    json_string(message);
-    printf("}\n");
-    libusb_exit(context);
-    LIBMTP_FreeMemory(rawdevices);
-    return 1;
-  }
-
-  for (ssize_t i = 0; i < device_count; i++) {
-    struct libusb_device_descriptor descriptor;
-    int descriptor_result = libusb_get_device_descriptor(devices[i], &descriptor);
-    if (descriptor_result != LIBUSB_SUCCESS) {
-      continue;
-    }
-
-    if (descriptor.idVendor != target->device_entry.vendor_id ||
-        descriptor.idProduct != target->device_entry.product_id) {
-      continue;
-    }
-
-    if (libusb_get_bus_number(devices[i]) != target->bus_location ||
-        libusb_get_device_address(devices[i]) != target->devnum) {
-      continue;
-    }
-
-    open_result = libusb_open(devices[i], &handle);
-    if (open_result == LIBUSB_SUCCESS && handle != NULL) {
-      reset_result = libusb_reset_device(handle);
-      libusb_close(handle);
-    }
-    break;
-  }
-
-  libusb_free_device_list(devices, 1);
-  libusb_exit(context);
-
-  if (open_result != LIBUSB_SUCCESS) {
-    char message[384];
-    snprintf(message, sizeof(message), "macOS would not open the phone for USB reset: %s. Unplug the phone, plug it back in, unlock it, then choose File transfer.", libusb_error_name(open_result));
-    printf("{\"ok\":false,\"state\":\"connect-error\",\"message\":");
-    json_string(message);
-    printf("}\n");
-    LIBMTP_FreeMemory(rawdevices);
-    return 1;
-  }
-
-  if (reset_result != LIBUSB_SUCCESS) {
-    char message[384];
-    snprintf(message, sizeof(message), "USB reset did not complete: %s. Unplug the phone, plug it back in, unlock it, then choose File transfer.", libusb_error_name(reset_result));
-    printf("{\"ok\":false,\"state\":\"connect-error\",\"message\":");
-    json_string(message);
-    printf("}\n");
-    LIBMTP_FreeMemory(rawdevices);
-    return 1;
-  }
-
-  printf("{\"ok\":true,\"state\":\"checking\",\"message\":\"USB reset requested. Keep the phone unlocked and choose File transfer if Android asks.\"}\n");
-  LIBMTP_FreeMemory(rawdevices);
-  return 0;
-}
-
-static int command_list(int argc, char **argv) {
-  if (argc < 5) {
-    fprintf(stderr, "usage: mtp-json list <device-index> <storage-id> <parent-id>\n");
-    return 2;
-  }
-
-  int device_index = 0;
-  uint32_t storage_id = 0;
-  uint32_t parent_id = 0;
-  if (!parse_nonnegative_int(argv[2], &device_index)) {
-    fprintf(stderr, "invalid device index: %s\n", argv[2]);
-    return 2;
-  }
-  if (!parse_u32(argv[3], &storage_id) || storage_id == 0) {
-    fprintf(stderr, "invalid storage id: %s\n", argv[3]);
-    return 2;
-  }
-
-  if (!parse_u32(argv[4], &parent_id)) {
-    fprintf(stderr, "invalid parent id: %s\n", argv[4]);
-    return 2;
-  }
-
-  LIBMTP_raw_device_t *rawdevices = NULL;
-  int numrawdevices = 0;
-  LIBMTP_error_number_t err;
-
-  LIBMTP_Init();
-  err = LIBMTP_Detect_Raw_Devices(&rawdevices, &numrawdevices);
-  if (err != LIBMTP_ERROR_NONE) {
-    printf("{\"ok\":false,\"state\":");
-    json_string(detect_error_state(err));
-    printf(",\"message\":");
-    json_string(detect_error_message(err));
-    printf(",\"deviceIndex\":%d,\"storageId\":%u,\"parentId\":%u,\"objects\":[]}\n",
-           device_index,
-           storage_id,
-           parent_id);
-    if (rawdevices != NULL) {
-      LIBMTP_FreeMemory(rawdevices);
-    }
-    return err == LIBMTP_ERROR_NO_DEVICE_ATTACHED ? 0 : 1;
-  }
-
-  if (device_index < 0 || device_index >= numrawdevices) {
-    printf("{\"ok\":false,\"state\":\"error\",\"message\":\"Invalid MTP device index.\",\"deviceIndex\":%d,\"storageId\":%u,\"parentId\":%u,\"objects\":[]}\n",
-           device_index,
-           storage_id,
-           parent_id);
-    LIBMTP_FreeMemory(rawdevices);
-    return 2;
-  }
-
-  LIBMTP_mtpdevice_t *device = LIBMTP_Open_Raw_Device_Uncached(&rawdevices[device_index]);
-  if (device == NULL) {
-    printf("{\"ok\":false,\"state\":\"connect-error\",\"message\":");
-    json_string(blocked_normal_access_message());
-    printf(",\"deviceIndex\":%d,\"storageId\":%u,\"parentId\":%u,\"objects\":[]}\n",
-           device_index,
-           storage_id,
-           parent_id);
-    LIBMTP_FreeMemory(rawdevices);
-    return 1;
-  }
-
-  LIBMTP_file_t *files = LIBMTP_Get_Files_And_Folders(device, storage_id, parent_id);
-  const char *list_error = files == NULL ? first_mtp_error_text(device) : NULL;
-  if (files == NULL && is_inferred_samsung_storage(&rawdevices[device_index], storage_id)) {
-    LIBMTP_Clear_Errorstack(device);
-    LIBMTP_file_t *fallback_files = LIBMTP_Get_Filelisting_With_Callback(device, NULL, NULL);
-    if (fallback_files == NULL) {
-      const char *fallback_error = first_mtp_error_text(device);
-      printf("{\"ok\":false,\"state\":\"error\",\"message\":");
-      json_string(fallback_error != NULL
-                      ? fallback_error
-                      : "The phone did not return its file index for the Samsung storage fallback.");
-      printf(",\"deviceIndex\":%d,\"storageId\":%u,\"parentId\":%u,\"objects\":[]}\n",
-             device_index,
-             storage_id,
-             parent_id);
-      LIBMTP_Clear_Errorstack(device);
-      LIBMTP_Release_Device(device);
-      LIBMTP_FreeMemory(rawdevices);
-      return 1;
-    }
-
-    printf("{\"ok\":true,\"state\":\"connected\",\"message\":\"Folder listed with Samsung storage fallback.\",\"deviceIndex\":%d,\"storageId\":%u,\"parentId\":%u,\"objects\":[",
-           device_index,
-           storage_id,
-           parent_id);
-    int first_object = 1;
-    print_filelisting_fallback_objects(
-        fallback_files,
-        &rawdevices[device_index],
-        storage_id,
-        parent_id,
-        &first_object);
-    destroy_file_list(fallback_files);
-    LIBMTP_Clear_Errorstack(device);
-    printf("]}\n");
-    LIBMTP_Release_Device(device);
-    LIBMTP_FreeMemory(rawdevices);
-    return 0;
-  }
-  if (files == NULL && (list_error != NULL || parent_id == ROOT_PARENT_ID)) {
-    printf("{\"ok\":false,\"state\":\"error\",\"message\":");
-    json_string(list_error != NULL ? list_error : empty_storage_root_message());
-    printf(",\"deviceIndex\":%d,\"storageId\":%u,\"parentId\":%u,\"objects\":[]}\n",
-           device_index,
-           storage_id,
-           parent_id);
-    LIBMTP_Clear_Errorstack(device);
-    LIBMTP_Release_Device(device);
-    LIBMTP_FreeMemory(rawdevices);
-    return 1;
-  }
-
-  printf("{\"ok\":true,\"state\":\"connected\",\"message\":\"Folder listed.\",\"deviceIndex\":%d,\"storageId\":%u,\"parentId\":%u,\"objects\":[",
-         device_index,
-         storage_id,
-         parent_id);
-
-  int first_object = 1;
-  LIBMTP_file_t *file = files;
-  while (file != NULL) {
-    LIBMTP_file_t *current = file;
-    file = file->next;
-    print_object(current, &first_object);
-    LIBMTP_destroy_file_t(current);
-  }
-
-  printf("]}\n");
-  LIBMTP_Release_Device(device);
-  LIBMTP_FreeMemory(rawdevices);
-  return 0;
-}
-
 static const uint64_t progress_emit_interval = 1024 * 1024;
-static uint64_t last_progress_sent = 0;
 static uint64_t session_last_progress_sent = 0;
 static uint64_t session_list_last_progress_sent = 0;
 static int session_list_last_percent = -1;
@@ -1470,19 +1153,6 @@ static int should_emit_progress(uint64_t const sent, uint64_t const total, uint6
     *last_sent = sent;
     return 1;
   }
-  return 0;
-}
-
-static int progress_callback(uint64_t const sent, uint64_t const total, void const *const data) {
-  (void)data;
-  if (!should_emit_progress(sent, total, &last_progress_sent)) {
-    return 0;
-  }
-  printf("{\"event\":\"progress\",\"sent\":%llu,\"total\":%llu,\"time\":%lld}\n",
-         (long long unsigned int)sent,
-         (long long unsigned int)total,
-         (long long)time(NULL));
-  fflush(stdout);
   return 0;
 }
 
@@ -1551,6 +1221,74 @@ static LIBMTP_file_t *ensure_session_fallback_files(LIBMTP_mtpdevice_t *device,
     *fallback_attempted = 0;
   }
   return *fallback_files;
+}
+
+// Set by SIGUSR1 when the user stops a listing. It is checked between objects, when no USB
+// transfer is in flight, so the phone is ready for the next command; killing the helper
+// mid-listing left a Samsung phone unanswering until its USB mode was toggled.
+static volatile sig_atomic_t session_list_stop_requested = 0;
+
+static void request_session_list_stop(int signal_number) {
+  (void)signal_number;
+  session_list_stop_requested = 1;
+}
+
+// Same work as LIBMTP_Get_Files_And_Folders (all handles, then each object's metadata), but it
+// can stop between objects and reports progress once a second. Progress also keeps the app's
+// command timeout alive on folders with thousands of photos.
+static LIBMTP_file_t *list_folder_objects(LIBMTP_mtpdevice_t *device,
+                                          uint32_t storage_id,
+                                          uint32_t parent_id,
+                                          const char *request_id,
+                                          int *stopped) {
+  // Cleared at the start, so a stop that arrives after the previous listing ended is ignored.
+  session_list_stop_requested = 0;
+  uint32_t *handles = NULL;
+  int count = LIBMTP_Get_Children(device, storage_id, parent_id, &handles);
+  if (count <= 0) {
+    return NULL;
+  }
+
+  LIBMTP_file_t *first = NULL;
+  LIBMTP_file_t *last = NULL;
+  time_t reported_at = time(NULL);
+  for (int index = 0; index < count; index += 1) {
+    if (session_list_stop_requested) {
+      *stopped = 1;
+      break;
+    }
+    LIBMTP_file_t *file = LIBMTP_Get_Filemetadata(device, handles[index]);
+    if (file != NULL) {
+      if (last == NULL) {
+        first = file;
+      } else {
+        last->next = file;
+      }
+      last = file;
+    }
+    time_t now = time(NULL);
+    if (now != reported_at) {
+      reported_at = now;
+      printf("{\"type\":\"list\",\"requestId\":");
+      json_string(request_id);
+      printf(",\"event\":\"progress\",\"sent\":%d,\"total\":%d,\"time\":%lld}\n",
+             index + 1,
+             count,
+             (long long)now);
+      fflush(stdout);
+    }
+  }
+  free(handles);
+
+  if (*stopped) {
+    while (first != NULL) {
+      LIBMTP_file_t *next = first->next;
+      LIBMTP_destroy_file_t(first);
+      first = next;
+    }
+    return NULL;
+  }
+  return first;
 }
 
 static uint32_t inferred_storage_id_for_write(LIBMTP_file_t *files) {
@@ -1858,233 +1596,6 @@ static uint32_t create_folder_on_device(LIBMTP_mtpdevice_t *device,
   return folder_id;
 }
 
-static int command_download(int argc, char **argv) {
-  if (argc < 5) {
-    fprintf(stderr, "usage: mtp-json download <device-index> <object-id> <destination-path>\n");
-    return 2;
-  }
-
-  int device_index = 0;
-  uint32_t object_id = 0;
-  const char *destination = argv[4];
-  LIBMTP_raw_device_t *rawdevices = NULL;
-  int numrawdevices = 0;
-  LIBMTP_error_number_t err;
-
-  if (!parse_nonnegative_int(argv[2], &device_index)) {
-    fprintf(stderr, "invalid device index: %s\n", argv[2]);
-    return 2;
-  }
-  if (!parse_u32(argv[3], &object_id) || object_id == 0) {
-    fprintf(stderr, "invalid object id: %s\n", argv[3]);
-    return 2;
-  }
-
-  LIBMTP_Init();
-  err = LIBMTP_Detect_Raw_Devices(&rawdevices, &numrawdevices);
-  if (err != LIBMTP_ERROR_NONE) {
-    printf("{\"event\":\"failed\",\"message\":");
-    json_string(detect_error_message(err));
-    printf("}\n");
-    return 1;
-  }
-
-  if (device_index < 0 || device_index >= numrawdevices) {
-    fprintf(stderr, "invalid device index: %d\n", device_index);
-    LIBMTP_FreeMemory(rawdevices);
-    return 2;
-  }
-
-  LIBMTP_mtpdevice_t *device = LIBMTP_Open_Raw_Device_Uncached(&rawdevices[device_index]);
-  if (device == NULL) {
-    printf("{\"event\":\"failed\",\"message\":");
-    json_string(blocked_normal_access_message());
-    printf("}\n");
-    LIBMTP_FreeMemory(rawdevices);
-    return 1;
-  }
-
-  printf("{\"event\":\"started\",\"objectId\":%u,\"destination\":", object_id);
-  json_string(destination);
-  printf("}\n");
-  fflush(stdout);
-
-  last_progress_sent = 0;
-  int result = LIBMTP_Get_File_To_File(device, object_id, destination, progress_callback, NULL);
-  if (result != 0) {
-    printf("{\"event\":\"failed\",\"message\":\"libmtp could not copy the file from the device.\"}\n");
-    LIBMTP_Dump_Errorstack(device);
-    LIBMTP_Clear_Errorstack(device);
-  } else {
-    printf("{\"event\":\"complete\",\"objectId\":%u,\"destination\":", object_id);
-    json_string(destination);
-    printf("}\n");
-  }
-
-  LIBMTP_Release_Device(device);
-  LIBMTP_FreeMemory(rawdevices);
-  return result == 0 ? 0 : 1;
-}
-
-static int command_mkdir(int argc, char **argv) {
-  if (argc < 6) {
-    fprintf(stderr, "usage: mtp-json mkdir <device-index> <storage-id> <parent-id> <folder-name>\n");
-    return 2;
-  }
-
-  int device_index = 0;
-  uint32_t storage_id = 0;
-  uint32_t parent_id = 0;
-  const char *name = argv[5];
-  LIBMTP_raw_device_t *rawdevices = NULL;
-  int numrawdevices = 0;
-  LIBMTP_error_number_t err;
-
-  if (!parse_nonnegative_int(argv[2], &device_index) ||
-      !parse_u32(argv[3], &storage_id) ||
-      !parse_u32(argv[4], &parent_id) ||
-      storage_id == 0 ||
-      *name == '\0') {
-    fprintf(stderr, "invalid folder destination\n");
-    return 2;
-  }
-
-  LIBMTP_Init();
-  err = LIBMTP_Detect_Raw_Devices(&rawdevices, &numrawdevices);
-  if (err != LIBMTP_ERROR_NONE) {
-    printf("{\"event\":\"failed\",\"message\":");
-    json_string(detect_error_message(err));
-    printf("}\n");
-    return 1;
-  }
-
-  if (device_index < 0 || device_index >= numrawdevices) {
-    fprintf(stderr, "invalid device index: %d\n", device_index);
-    LIBMTP_FreeMemory(rawdevices);
-    return 2;
-  }
-
-  LIBMTP_mtpdevice_t *device = LIBMTP_Open_Raw_Device_Uncached(&rawdevices[device_index]);
-  if (device == NULL) {
-    printf("{\"event\":\"failed\",\"message\":");
-    json_string(blocked_normal_access_message());
-    printf("}\n");
-    LIBMTP_FreeMemory(rawdevices);
-    return 1;
-  }
-
-  uint32_t folder_id = create_folder_on_device(device, name, storage_id, parent_id);
-  if (folder_id == 0) {
-    printf("{\"event\":\"failed\",\"message\":\"libmtp could not create the folder on the device.\"}\n");
-    LIBMTP_Dump_Errorstack(device);
-    LIBMTP_Clear_Errorstack(device);
-  } else {
-    printf("{\"event\":\"complete\",\"folderId\":%u,\"name\":", folder_id);
-    json_string(name);
-    printf(",\"storageId\":%u,\"parentId\":%u}\n", storage_id, parent_id);
-  }
-
-  LIBMTP_Release_Device(device);
-  LIBMTP_FreeMemory(rawdevices);
-  return folder_id == 0 ? 1 : 0;
-}
-
-static int command_upload(int argc, char **argv) {
-  if (argc < 6) {
-    fprintf(stderr, "usage: mtp-json upload <device-index> <storage-id> <parent-id> <source-path>\n");
-    return 2;
-  }
-
-  int device_index = 0;
-  uint32_t storage_id = 0;
-  uint32_t parent_id = 0;
-  const char *source = argv[5];
-  LIBMTP_raw_device_t *rawdevices = NULL;
-  int numrawdevices = 0;
-  LIBMTP_error_number_t err;
-
-  if (!parse_nonnegative_int(argv[2], &device_index) ||
-      !parse_u32(argv[3], &storage_id) ||
-      !parse_u32(argv[4], &parent_id) ||
-      storage_id == 0) {
-    fprintf(stderr, "invalid upload destination\n");
-    return 2;
-  }
-
-  LIBMTP_Init();
-  err = LIBMTP_Detect_Raw_Devices(&rawdevices, &numrawdevices);
-  if (err != LIBMTP_ERROR_NONE) {
-    printf("{\"event\":\"failed\",\"message\":");
-    json_string(detect_error_message(err));
-    printf("}\n");
-    return 1;
-  }
-
-  if (device_index < 0 || device_index >= numrawdevices) {
-    fprintf(stderr, "invalid device index: %d\n", device_index);
-    LIBMTP_FreeMemory(rawdevices);
-    return 2;
-  }
-
-  LIBMTP_mtpdevice_t *device = LIBMTP_Open_Raw_Device_Uncached(&rawdevices[device_index]);
-  if (device == NULL) {
-    printf("{\"event\":\"failed\",\"message\":");
-    json_string(blocked_normal_access_message());
-    printf("}\n");
-    LIBMTP_FreeMemory(rawdevices);
-    return 1;
-  }
-
-  printf("{\"event\":\"started\",\"source\":");
-  json_string(source);
-  printf(",\"storageId\":%u,\"parentId\":%u}\n", storage_id, parent_id);
-  fflush(stdout);
-
-  last_progress_sent = 0;
-  uint32_t uploaded_object_id = 0;
-  uint64_t uploaded_size = 0;
-  int result = send_file_to_device(
-      device,
-      source,
-      path_basename(source),
-      storage_id,
-      parent_id,
-      NULL,
-      progress_callback,
-      &uploaded_object_id,
-      &uploaded_size);
-  if (result != 0) {
-    const char *message = "libmtp could not copy the file to the device.";
-    if (result == -5) {
-      message = "A different item with the same name is already on the phone. Nothing was overwritten.";
-    }
-    printf("{\"event\":\"failed\",\"message\":");
-    json_string(message);
-    printf("}\n");
-    LIBMTP_Dump_Errorstack(device);
-    LIBMTP_Clear_Errorstack(device);
-  } else {
-    uint32_t verified_object_id = verified_uploaded_file_id(
-        device,
-        uploaded_object_id,
-        storage_id,
-        parent_id,
-        path_basename(source),
-        uploaded_size);
-    printf("{\"event\":\"complete\",\"source\":");
-    json_string(source);
-    printf(",\"storageId\":%u,\"parentId\":%u,\"objectId\":%u,\"verified\":%s}\n",
-           storage_id,
-           parent_id,
-           verified_object_id != 0 ? verified_object_id : uploaded_object_id,
-           verified_object_id != 0 ? "true" : "false");
-  }
-
-  LIBMTP_Release_Device(device);
-  LIBMTP_FreeMemory(rawdevices);
-  return result == 0 ? 0 : 1;
-}
-
 static void session_inventory(const char *request_id,
                               int device_index,
                               LIBMTP_raw_device_t *rawdevice,
@@ -2138,7 +1649,19 @@ static void session_list(const char *request_id,
                          uint32_t parent_id,
                          LIBMTP_file_t **fallback_files,
                          int *fallback_attempted) {
-  LIBMTP_file_t *files = LIBMTP_Get_Files_And_Folders(device, storage_id, parent_id);
+  int stopped = 0;
+  LIBMTP_file_t *files = list_folder_objects(device, storage_id, parent_id, request_id, &stopped);
+  if (stopped) {
+    printf("{\"type\":\"response\",\"requestId\":");
+    json_string(request_id);
+    printf(",\"ok\":false,\"cancelled\":true,\"state\":\"connected\",\"message\":\"Folder listing stopped.\",\"deviceIndex\":%d,\"storageId\":%u,\"parentId\":%u,\"objects\":[]}\n",
+           device_index,
+           storage_id,
+           parent_id);
+    LIBMTP_Clear_Errorstack(device);
+    fflush(stdout);
+    return;
+  }
   const char *list_error = files == NULL ? first_mtp_error_text(device) : NULL;
   if (files == NULL && is_inferred_samsung_storage(rawdevice, storage_id)) {
     ensure_session_fallback_files(device, request_id, fallback_files, fallback_attempted);
@@ -2465,7 +1988,8 @@ static void session_delete_item(const char *request_id,
                                 int expected_size_available,
                                 uint64_t expected_modified,
                                 int expected_modified_available,
-                                const char *expected_name) {
+                                const char *expected_name,
+                                int require_empty) {
   LIBMTP_file_t *metadata = verified_phone_mutation_target(
       request_id,
       device,
@@ -2481,7 +2005,27 @@ static void session_delete_item(const char *request_id,
   if (metadata == NULL) {
     return;
   }
+  // The inferred Samsung storage id is not a storage the phone has; a phone may answer 0 children for it.
+  uint32_t children_storage_id = metadata->storage_id != 0 ? metadata->storage_id : storage_id;
   LIBMTP_destroy_file_t(metadata);
+
+  // Deleting an MTP folder can delete everything in it, so a moved-from folder goes only when the phone reports it empty.
+  if (require_empty) {
+    uint32_t *children = NULL;
+    int count = -1;
+    if (children_storage_id != INFERRED_STORAGE_ID) {
+      count = LIBMTP_Get_Children(device, children_storage_id, object_id, &children);
+    }
+    free(children);
+    if (count != 0) {
+      LIBMTP_Clear_Errorstack(device);
+      print_phone_mutation_failure(
+          request_id,
+          count > 0 ? "The folder still has items, so it was kept."
+                    : "The phone could not confirm the folder is empty, so it was kept.");
+      return;
+    }
+  }
 
   int result = LIBMTP_Delete_Object(device, object_id);
   if (result != 0) {
@@ -2574,6 +2118,13 @@ static int command_session(int argc, char **argv) {
 #endif
   printf("}\n");
   fflush(stdout);
+
+  struct sigaction stop_listing;
+  memset(&stop_listing, 0, sizeof(stop_listing));
+  stop_listing.sa_handler = request_session_list_stop;
+  sigemptyset(&stop_listing.sa_mask);
+  stop_listing.sa_flags = SA_RESTART;
+  sigaction(SIGUSR1, &stop_listing, NULL);
 
   char line[8192];
   while (fgets(line, sizeof(line), stdin) != NULL) {
@@ -2726,7 +2277,9 @@ static int command_session(int argc, char **argv) {
       continue;
     }
 
-    if (strcmp(command, "rename-item") == 0 || strcmp(command, "delete-item") == 0) {
+    if (strcmp(command, "rename-item") == 0 || strcmp(command, "delete-item") == 0 ||
+        strcmp(command, "delete-empty-folder") == 0) {
+      int require_empty = strcmp(command, "delete-empty-folder") == 0;
       uint32_t object_id = 0;
       uint32_t storage_id = 0;
       uint32_t parent_id = 0;
@@ -2758,7 +2311,7 @@ static int command_session(int argc, char **argv) {
           ? !expected_size_available && !expected_modified_available
           : expected_size_available &&
             (!expected_modified_available || expected_modified > 0);
-      valid = valid && valid_file_metadata;
+      valid = valid && valid_file_metadata && (!require_empty || expected_folder);
       if (valid && new_name_token != NULL) {
         valid = decode_phone_item_name(new_name_token, 1, &new_name);
       }
@@ -2795,7 +2348,8 @@ static int command_session(int argc, char **argv) {
             expected_size_available,
             expected_modified,
             expected_modified_available,
-            expected_name);
+            expected_name,
+            require_empty);
       }
       free(expected_name);
       free(new_name);
@@ -2816,36 +2370,12 @@ int main(int argc, char **argv) {
   setvbuf(stdout, NULL, _IOLBF, 0);
 
   if (argc < 2) {
-    fprintf(stderr, "usage: mtp-json <status|inventory|reset|list|download|mkdir|upload|session>\n");
+    fprintf(stderr, "usage: mtp-json <status|session>\n");
     return 2;
   }
 
   if (strcmp(argv[1], "status") == 0) {
     return command_status();
-  }
-
-  if (strcmp(argv[1], "inventory") == 0) {
-    return command_inventory();
-  }
-
-  if (strcmp(argv[1], "reset") == 0) {
-    return command_reset();
-  }
-
-  if (strcmp(argv[1], "list") == 0) {
-    return command_list(argc, argv);
-  }
-
-  if (strcmp(argv[1], "download") == 0) {
-    return command_download(argc, argv);
-  }
-
-  if (strcmp(argv[1], "mkdir") == 0) {
-    return command_mkdir(argc, argv);
-  }
-
-  if (strcmp(argv[1], "upload") == 0) {
-    return command_upload(argc, argv);
   }
 
   if (strcmp(argv[1], "session") == 0) {

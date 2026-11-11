@@ -9,7 +9,7 @@ async function readProjectFile(path) {
   return readFile(resolve(root, path), 'utf8');
 }
 
-const [types, main, preload, app, styles, readme, checklist, architecture] = await Promise.all([
+const [types, main, preload, app, styles, readme, checklist, architecture, viteConfig] = await Promise.all([
   readProjectFile('src/shared/types.ts'),
   readProjectFile('src/main/index.ts'),
   readProjectFile('src/preload/index.ts'),
@@ -17,7 +17,8 @@ const [types, main, preload, app, styles, readme, checklist, architecture] = awa
   readProjectFile('src/renderer/src/styles.css'),
   readProjectFile('README.md'),
   readProjectFile('docs/manual-test-checklist.md'),
-  readProjectFile('docs/architecture.md')
+  readProjectFile('docs/architecture.md'),
+  readProjectFile('electron.vite.config.ts')
 ]);
 
 assert.match(types, /export interface DiagnosticsCopyResult/, 'Shared types must expose a diagnostics copy result.');
@@ -38,6 +39,28 @@ assert.match(main, /This report includes connection state, USB metadata, helper 
 assert.match(main, /clipboard\.writeText\(text\)/, 'Diagnostics report must be copied to the clipboard by the main process.');
 assert.match(main, /ipcMain\.handle\('mtp:copyDiagnostics', copyDiagnostics\)/, 'Main process must register the diagnostics IPC handler.');
 assert.doesNotMatch(main, /objects:\s*MtpObject\[\]/, 'Diagnostics code must not add phone object listings to the report type.');
+assert.match(
+  viteConfig,
+  /'describe', '--always', '--dirty', '--abbrev=7'[\s\S]*return 'unknown'[\s\S]*main: \{[\s\S]*define: \{ __BUILD_COMMIT__: JSON\.stringify\(buildCommit\(\)\) \}[\s\S]*preload:/,
+  'The main-process build must embed its git commit, or unknown when git is unavailable.'
+);
+assert.match(main, /Version: \$\{app\.getVersion\(\)\} \(\$\{__BUILD_COMMIT__\}\)/, 'Diagnostics must name the build commit next to the version, since many builds share one version.');
+assert.match(
+  main,
+  /app\.whenReady\(\)\.then\([\s\S]*app\.setAboutPanelOptions\(\{ applicationVersion: app\.getVersion\(\), version: __BUILD_COMMIT__ \}\)/,
+  'The About panel must show the build commit.'
+);
+assert.match(main, /const MAX_LOG_BYTES = 5 \* 1024 \* 1024;/, 'The log must rotate once it passes 5 MB.');
+assert.match(
+  main,
+  /function rotateLogAtStartup\(\): void \{[\s\S]*?statSync\(logPath\)\.size > MAX_LOG_BYTES[\s\S]*?renameSync\(logPath, `\$\{logPath\}\.1`\)/,
+  'An oversized log must be renamed to mtp.log.1, replacing the older one.'
+);
+assert.match(
+  main,
+  /app\.whenReady\(\)\.then\(\(\) => \{\s*rotateLogAtStartup\(\);/,
+  'The log must rotate at startup before the launch writes its first line.'
+);
 
 assert.match(app, /const \[diagnosticsBusy, setDiagnosticsBusy\] = useState\(false\)/, 'Renderer must show a busy state while copying diagnostics.');
 assert.match(app, /async function copyDiagnosticReport\(\): Promise<void>/, 'Renderer must own a copy diagnostics action.');

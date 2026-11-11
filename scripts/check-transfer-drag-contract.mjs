@@ -49,10 +49,10 @@ assert.match(
   /NSFilePromiseProvider/,
   'The native bridge must advertise real macOS file promises.'
 );
-assert.match(
+assert.doesNotMatch(
   native,
   /coordinateWritingItemAtURL/,
-  'Promise fulfillment must use NSFileCoordinator.'
+  'AppKit already coordinates promise writes; a nested NSFileCoordinator deadlocks every drop.'
 );
 assert.match(
   native,
@@ -164,6 +164,12 @@ assert.match(
   main,
   /ipcMain\.handle\('mtp:getDesktopDestination', getDesktopDestination\)/,
   'Main process must register the Desktop destination helper.'
+);
+
+assert.match(
+  main,
+  /webContents\.on\('will-navigate', \(event\) => \{\s*if \(event\.url !== webContents\.getURL\(\)\) \{\s*event\.preventDefault\(\);[\s\S]*webContents\.setWindowOpenHandler\(\(\) => \(\{ action: 'deny' \}\)\)/,
+  'A file dropped outside the phone pane must not navigate the window away from the app, and the page must not open new windows.'
 );
 
 console.log('Transfer drag contract check passed.');

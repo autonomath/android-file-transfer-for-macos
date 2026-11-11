@@ -180,19 +180,6 @@ try {
     () => publishTemporaryFile({ temporaryPath: symlinkPartial, destinationPath: join(directory, 'link.txt'), expectedSize: 8 }),
     /not a regular file/
   );
-
-  const cachedPartial = join(directory, 'cached.partial');
-  const cachedFinal = join(directory, 'cached.txt');
-  await writeFile(cachedPartial, 'same');
-  await writeFile(cachedFinal, 'same');
-  const cached = publishTemporaryFile({
-    temporaryPath: cachedPartial,
-    destinationPath: cachedFinal,
-    expectedSize: 4,
-    allowExistingEquivalent: true
-  });
-  assert.equal(cached.usedExisting, true);
-  assert.equal(existsSync(cachedPartial), false);
 } finally {
   await rm(directory, { recursive: true, force: true });
 }

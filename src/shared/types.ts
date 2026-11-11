@@ -72,6 +72,8 @@ export interface DeviceStatus {
 export interface UsbConflictApp {
   id: string;
   name: string;
+  // False when the app is only a possible cause.
+  verified: boolean;
   quitImpact: string;
 }
 
@@ -150,6 +152,8 @@ export interface FolderListResult {
   connectionPhase?: MtpConnectionPhase;
   connectionIssue?: MtpConnectionIssue;
   fileAccessUnavailable?: boolean;
+  // The user stopped the listing; the phone and session are fine.
+  cancelled?: boolean;
   helperPath: string;
   logPath: string;
   stderr?: string;
@@ -229,6 +233,11 @@ export interface TrashLocalItemsResult {
   message: string;
   trashedPaths: string[];
   failures: TrashLocalItemFailure[];
+}
+
+export interface RemoveEmptyLocalFoldersResult {
+  removedPaths: string[];
+  kept: Array<{ path: string; message: string }>;
 }
 
 export interface TransferRequest {
@@ -316,6 +325,8 @@ export interface DeletePhoneItemsRequest {
   deviceIndex: number;
   deviceConnectionId: string;
   targets: PhoneMutationTarget[];
+  // Source folders a confirmed Move emptied: no second dialog, and the phone deletes each only if it is empty.
+  emptyFoldersOnly?: boolean;
 }
 
 export interface DeletePhoneItemFailure {
@@ -493,6 +504,8 @@ export type AppMenuCommand =
   | 'copy-to-queue'
   | 'copy-selection'
   | 'paste-selection'
+  | 'go-back'
+  | 'go-forward'
   | 'folder-up'
   | 'refresh'
   | 'select-all'
@@ -511,6 +524,7 @@ export type AppMenuCommand =
 export interface MtpApi {
   getStatus: () => Promise<DeviceStatus>;
   requestQuitUsbApp: (request: QuitUsbAppRequest) => Promise<QuitUsbAppResult>;
+  releaseUsbConnection: (connectionId: string) => Promise<QuitUsbAppResult>;
   scanInventory: () => Promise<InventoryResult>;
   listFolder: (
     deviceIndex: number,
@@ -528,6 +542,7 @@ export interface MtpApi {
   createLocalFolder: (request: CreateLocalFolderRequest) => Promise<LocalMutationResult>;
   renameLocalItem: (request: RenameLocalItemRequest) => Promise<LocalMutationResult>;
   trashLocalItems: (request: TrashLocalItemsRequest) => Promise<TrashLocalItemsResult>;
+  removeEmptyLocalFolders: (paths: string[]) => Promise<RemoveEmptyLocalFoldersResult>;
   setLocalModifiedTime: (path: string, modified: number) => Promise<LocalModifiedTimeResult>;
   getCommonMacFolders: () => Promise<CommonMacFolder[]>;
   chooseDestination: () => Promise<DestinationResult>;

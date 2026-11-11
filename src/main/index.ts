@@ -50,7 +50,7 @@ import {
   publishTemporaryFile,
   replaceTemporaryFile
 } from './atomicDownload';
-import { removeVerifiedLocalMoveSource } from './localMoveSource';
+import { removeEmptyLocalFolders, removeVerifiedLocalMoveSource } from './localMoveSource';
 import { publishStagedPhoneReplacement } from './phoneReplacement';
 import {
   deviceConnectionId as buildDeviceConnectionId,
@@ -63,6 +63,7 @@ import { keepBothPhoneName, temporaryPhoneTransferName } from '../shared/transfe
 import type {
   AppMenuCommand,
   QuitUsbAppRequest,
+  QuitUsbAppResult,
   AppUpdateCheckResult,
   CommonMacFolder,
   CreateLocalFolderRequest,
@@ -108,6 +109,9 @@ import type {
   TransferRequest,
   UploadRequest
 } from '../shared/types';
+
+// Set by electron.vite.config.ts at build time.
+declare const __BUILD_COMMIT__: string;
 
 const { autoUpdater } = electronUpdater;
 const currentDir = dirname(fileURLToPath(import.meta.url));
@@ -173,6 +177,7 @@ interface FilePromiseDragAddon {
   ) => boolean;
   completePromise: (promiseId: string, error?: string) => boolean;
   failAll: (error?: string) => void;
+  volumeAvailableBytes?: (directory: string) => number | null;
 }
 
 interface PromisedDirectory {
@@ -278,6 +283,20 @@ function getLogPath(): string {
 function appendLog(message: string): void {
   const timestamp = new Date().toISOString();
   appendFileSync(getLogPath(), `[${timestamp}] ${message}\n`, 'utf8');
+}
+
+const MAX_LOG_BYTES = 5 * 1024 * 1024;
+
+// Keep the previous launch's log as mtp.log.1 so the log cannot grow without limit across launches.
+function rotateLogAtStartup(): void {
+  const logPath = getLogPath();
+  try {
+    if (existsSync(logPath) && statSync(logPath).size > MAX_LOG_BYTES) {
+      renameSync(logPath, `${logPath}.1`);
+    }
+  } catch (error) {
+    appendLog(`warning: unable to rotate the log: ${String(error)}`);
+  }
 }
 
 // A phone that keeps answering the storage question the same way produces the
@@ -465,7 +484,7 @@ function currentUsbConflict() {
 }
 
 function currentMacCameraClientApp(): string | undefined {
-  return currentUsbConflict()?.apps.map((entry) => entry.name).join(', ') || undefined;
+  return currentUsbConflict()?.apps.filter((entry) => entry.verified).map((entry) => entry.name).join(', ') || undefined;
 }
 
 async function readMacCameraClients(owner: MacMtpCameraOwner) {
@@ -536,6 +555,57 @@ async function requestQuitUsbApp(request: QuitUsbAppRequest) {
       return addon.requestApplicationQuit(client.bundleId, client.bundlePath);
     }
   });
+}
+
+function isOwnCameraService(pid: number): boolean {
+  try {
+    const output = execFileSync('/bin/ps', ['-p', String(pid), '-o', 'uid=', '-o', 'comm='], {
+      encoding: 'utf8', timeout: 1000, maxBuffer: 16 * 1024
+    }).trim();
+    const match = output.match(/^(\d+)\s+(.+)$/);
+    return !!match && Number(match[1]) === process.getuid?.() && basename(match[2].trim()) === 'ptpcamerad';
+  } catch {
+    return false;
+  }
+}
+
+// Only on the user's click, and only when no running app is registered with macOS camera import:
+// then nothing asks launchd to restart it, so one normal stop frees the phone without a reset storm.
+// While an app still uses it, the panel offers that app's Quit instead.
+async function releaseUsbConnection(connectionId: string): Promise<QuitUsbAppResult> {
+  const changed = { ok: false, message: 'The phone connection changed. Checking again automatically.' };
+  if (typeof connectionId !== 'string') return changed;
+  await refreshRawDevices();
+  const rawDevice = lastRawDevices.find((entry) => rawDeviceConnectionId(entry) === connectionId);
+  if (!rawDevice || sessionConnectionId === connectionId) return changed;
+  const conflict = await inspectMacCameraConflict(rawDevice);
+  if (!conflict) return { ok: true, message: 'The phone is free. Connecting…' };
+  if (conflict.clients.length) {
+    return { ok: false, message: `${conflict.clients.map((client) => client.appName).join(', ')} is using the phone. Use its Quit button.` };
+  }
+  const pid = conflict.owner.pid;
+  if (!isOwnCameraService(pid)) return changed;
+  try {
+    process.kill(pid, 'SIGTERM');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') {
+      appendLog(`could not stop the idle macOS camera-import service (pid ${pid}): ${String(error)}`);
+      return { ok: false, message: 'macOS did not let go of the phone. Unplug it and plug it back in.' };
+    }
+  }
+  appendLog(`user released the phone from the idle macOS camera-import service (pid ${pid}); no app was registered with it`);
+  const deadline = Date.now() + 3000;
+  for (;;) {
+    const owner = findMacMtpCameraOwner(await readMacMtpInterfaces(), rawDevice);
+    if (!owner) return { ok: true, message: 'Released. Connecting to the phone…' };
+    if (owner.pid !== pid) {
+      return { ok: false, message: 'macOS reopened camera import for another app. Checking which app; its Quit button will appear here.' };
+    }
+    if (Date.now() >= deadline) {
+      return { ok: false, message: 'macOS did not let go of the phone. Unplug it and plug it back in.' };
+    }
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 150));
+  }
 }
 
 function bridgeFailureHint(stderr: string, timedOut: boolean): string | null {
@@ -1009,8 +1079,15 @@ function cancelFolderListing(): boolean {
   }
 
   if (canCancelCommand(activeSessionCommand)) {
-    appendLog(`user stopped active MTP ${activeSessionCommand?.name} command`);
-    destroyMtpSession(cancelError.message, true);
+    if (activeSessionCommand?.name === 'list' && sessionProcess) {
+      // The helper stops between objects and answers "cancelled"; the session stays open.
+      // Killing it mid-listing left the phone unanswering until its USB mode was toggled.
+      appendLog('user stopped the active MTP folder listing; the helper stops before the next object');
+      sessionProcess.kill('SIGUSR1');
+    } else {
+      appendLog(`user stopped active MTP ${activeSessionCommand?.name} command`);
+      destroyMtpSession(cancelError.message, true);
+    }
     stopped = true;
   }
 
@@ -1325,7 +1402,26 @@ function pumpSessionQueue(): void {
   sessionProcess.stdin.write(command.line);
 }
 
+// Two callers must never start two helpers for one phone: both would open its USB interface at once,
+// which left the phone unresponsive until its USB mode was toggled. Later callers wait, then recheck.
+let mtpSessionOpening: Promise<void> | null = null;
+
 async function ensureMtpSession(deviceIndex: number, expectedConnectionId?: string): Promise<void> {
+  while (mtpSessionOpening) {
+    await mtpSessionOpening.catch(() => undefined);
+  }
+  const opening = openMtpSession(deviceIndex, expectedConnectionId);
+  mtpSessionOpening = opening;
+  try {
+    await opening;
+  } finally {
+    if (mtpSessionOpening === opening) {
+      mtpSessionOpening = null;
+    }
+  }
+}
+
+async function openMtpSession(deviceIndex: number, expectedConnectionId?: string): Promise<void> {
   const generation = connectionAttemptGeneration;
   await waitForMtpSessionTeardown();
   const helperPath = await ensureBridge();
@@ -1786,7 +1882,7 @@ function buildDiagnosticsReport(status: DeviceStatus, generatedAt: string): stri
     `Generated: ${generatedAt}`,
     '',
     'App',
-    `Version: ${app.getVersion()}`,
+    `Version: ${app.getVersion()} (${__BUILD_COMMIT__})`,
     `Packaged: ${app.isPackaged && !IS_DEVELOPMENT_RUNTIME ? 'yes' : 'no'}`,
     `Platform: ${process.platform} ${process.arch}`,
     `Electron: ${process.versions.electron ?? 'unknown'}`,
@@ -2395,6 +2491,9 @@ async function listFolder(
       180_000,
       reportProgress
     );
+    if (result.cancelled) {
+      return helperMetadata({ ...result, connectionPhase: 'ready' }, lastSessionStderr);
+    }
     if (!result.ok && parentId === MTP_ROOT_PARENT_ID) {
       appendLog(
         `session root listing failed for ${deviceConnectionId}; keeping the persistent session open for an explicit storage retry`
@@ -2489,7 +2588,7 @@ function phoneMutationUnavailableMessage(): string | null {
 async function runPhoneMutationCommand(
   deviceIndex: number,
   deviceConnectionId: string,
-  command: 'rename-item' | 'delete-item',
+  command: 'rename-item' | 'delete-item' | 'delete-empty-folder',
   args: string[]
 ): Promise<{ result: SessionPayload; stderr: string }> {
   const result = await runSessionCommand<SessionPayload>(
@@ -2654,11 +2753,14 @@ async function deletePhoneItems(request: DeletePhoneItemsRequest): Promise<Delet
       targets.push(target);
     }
   }
+  if (request.emptyFoldersOnly && targets.some((target) => target.kind !== 'folder')) {
+    return { ...fallback, message: 'Only emptied folders can be removed after a move.' };
+  }
   const unavailable = phoneMutationUnavailableMessage();
   if (unavailable) {
     return { ...fallback, message: unavailable };
   }
-  if (!(await confirmPhoneDeletion(targets))) {
+  if (!request.emptyFoldersOnly && !(await confirmPhoneDeletion(targets))) {
     return helperMetadata({
       ...fallback,
       confirmed: false,
@@ -2683,7 +2785,7 @@ async function deletePhoneItems(request: DeletePhoneItemsRequest): Promise<Delet
         const response = await runPhoneMutationCommand(
           request.deviceIndex,
           request.deviceConnectionId,
-          'delete-item',
+          request.emptyFoldersOnly ? 'delete-empty-folder' : 'delete-item',
           phoneMutationArgs(target)
         );
         stderr = response.stderr || stderr;
@@ -2876,7 +2978,7 @@ function finalizeDownloadedFile(job: TransferJob): void {
     throw new Error('The transfer completed without a partial Mac file to publish.');
   }
 
-  if (job.direction === 'download' && job.promiseId) {
+  if (job.promiseId) {
     publishTemporaryFile({
       temporaryPath,
       destinationPath: job.destinationPath,
@@ -2884,7 +2986,7 @@ function finalizeDownloadedFile(job: TransferJob): void {
     });
     job.originalDestinationPath = job.destinationPath;
     job.renamedDestination = false;
-  } else if (job.direction === 'download' && job.collisionAction === 'replace' && job.destinationIdentity) {
+  } else if (job.collisionAction === 'replace' && job.destinationIdentity) {
     replaceTemporaryFile({
       temporaryPath,
       destinationPath: job.destinationPath,
@@ -2893,7 +2995,7 @@ function finalizeDownloadedFile(job: TransferJob): void {
     });
     job.originalDestinationPath = job.destinationPath;
     job.renamedDestination = false;
-  } else if (job.direction === 'download') {
+  } else {
     const reservedPaths = reservedDownloadDestinationPaths(job.id);
     if (reservedPaths.has(job.destinationPath)) {
       job.destinationPath = uniqueDestinationPath(job.destinationDirectory, job.name, reservedPaths);
@@ -2907,13 +3009,6 @@ function finalizeDownloadedFile(job: TransferJob): void {
     job.destinationPath = published.destinationPath;
     job.originalDestinationPath ??= join(job.destinationDirectory, sanitizeFileName(job.name));
     job.renamedDestination = job.destinationPath !== job.originalDestinationPath;
-  } else {
-    publishTemporaryFile({
-      temporaryPath,
-      destinationPath: job.destinationPath,
-      expectedSize: job.size,
-      allowExistingEquivalent: true
-    });
   }
 
   job.temporaryPath = undefined;
@@ -2941,11 +3036,17 @@ function formatBytesForMessage(bytes: number): string {
 }
 
 function availableBytesForDirectory(directory: string): { bytes: number; volumeKey: string } {
-  const stats = statfsSync(directory);
   const directoryStats = statSync(directory);
-  const availableBlocks = Number(stats.bavail);
-  const blockSize = Number(stats.bsize);
-  const bytes = availableBlocks * blockSize;
+  // Finder's figure counts purgeable space macOS frees for user-initiated downloads; statfs does
+  // not, and reported 13 GB on a disk Finder showed with 74 GB available.
+  const finderBytes = loadFilePromiseDragAddon()?.volumeAvailableBytes?.(directory);
+  let bytes: number;
+  if (typeof finderBytes === 'number' && Number.isFinite(finderBytes) && finderBytes >= 0) {
+    bytes = finderBytes;
+  } else {
+    const stats = statfsSync(directory);
+    bytes = Number(stats.bavail) * Number(stats.bsize);
+  }
 
   if (!Number.isFinite(bytes) || bytes < 0) {
     throw new Error(`Unable to read free space for ${directory}.`);
@@ -2955,6 +3056,29 @@ function availableBytesForDirectory(directory: string): { bytes: number; volumeK
     bytes,
     volumeKey: String(directoryStats.dev)
   };
+}
+
+// macOS and other apps need room to keep working; a transfer must not fill a volume to the last gigabyte.
+const DOWNLOAD_FREE_SPACE_MARGIN_BYTES = 2 * 1024 * 1024 * 1024;
+
+// Earlier downloads still need room the free-space reading does not show yet: all of a queued file,
+// and the untransferred rest of an active one (its temporary file already holds the transferred part).
+function pendingDownloadBytesByVolume(): Map<string, number> {
+  const reservedBytesByVolume = new Map<string, number>();
+  for (const job of transferJobs.values()) {
+    if (job.direction !== 'download' || (job.status !== 'queued' && job.status !== 'active')) {
+      continue;
+    }
+    let volumeKey: string;
+    try {
+      volumeKey = String(statSync(job.destinationDirectory).dev);
+    } catch {
+      continue;
+    }
+    const pendingBytes = Math.max(job.status === 'active' ? job.size - job.bytesTransferred : job.size, 0);
+    reservedBytesByVolume.set(volumeKey, (reservedBytesByVolume.get(volumeKey) ?? 0) + pendingBytes);
+  }
+  return reservedBytesByVolume;
 }
 
 function downloadSpaceError(
@@ -2968,7 +3092,7 @@ function downloadSpaceError(
   try {
     const available = availableBytesForDirectory(job.destinationDirectory);
     const alreadyReserved = reservedBytesByVolume.get(available.volumeKey) ?? 0;
-    const remainingBytes = Math.max(available.bytes - alreadyReserved, 0);
+    const remainingBytes = Math.max(available.bytes - alreadyReserved - DOWNLOAD_FREE_SPACE_MARGIN_BYTES, 0);
 
     if (job.size > remainingBytes) {
       const recovery = job.promiseId
@@ -2976,7 +3100,7 @@ function downloadSpaceError(
         : 'Choose another Mac folder or free space, then Retry.';
       return [
         'Not enough free space on the Mac.',
-        `${job.name} needs ${formatBytesForMessage(job.size)}, but this Mac volume has about ${formatBytesForMessage(remainingBytes)} free.`,
+        `${job.name} needs ${formatBytesForMessage(job.size)}, but this Mac volume has about ${formatBytesForMessage(remainingBytes)} free after keeping ${formatBytesForMessage(DOWNLOAD_FREE_SPACE_MARGIN_BYTES)} for macOS.`,
         recovery
       ].join(' ');
     }
@@ -3383,6 +3507,16 @@ function nextQueuedJob(): TransferJob | undefined {
   return Array.from(transferJobs.values()).find((job) => job.status === 'queued');
 }
 
+// The window keeps finished jobs in its own list; dropping completed ones here keeps every queue scan
+// short in long sessions. Failed and canceled jobs stay so Retry can find them.
+function forgetCompletedJobs(): void {
+  for (const [jobId, job] of transferJobs) {
+    if (job.status === 'completed') {
+      transferJobs.delete(jobId);
+    }
+  }
+}
+
 function sameLocalSourceIdentity(
   current: LocalSourceIdentity,
   queued: LocalSourceIdentity
@@ -3431,6 +3565,10 @@ async function requireCurrentPhoneConnection(job: TransferJob): Promise<void> {
   }
 }
 
+// The helper reports every 1 MiB and each event re-renders the whole renderer; transfers run one at a time, so one timestamp throttles per job.
+const TRANSFER_PROGRESS_EVENT_INTERVAL_MS = 250;
+let lastTransferProgressSentAt = 0;
+
 function handleTransferPayload(job: TransferJob, payload: SessionPayload): void {
   if (payload.event === 'started') {
     sendTransferEvent('started', job);
@@ -3450,7 +3588,11 @@ function handleTransferPayload(job: TransferJob, payload: SessionPayload): void 
     job.speedBytesPerSecond = job.bytesTransferred / elapsedSeconds;
     const remaining = Math.max(job.totalBytes - job.bytesTransferred, 0);
     job.etaSeconds = job.speedBytesPerSecond > 0 ? remaining / job.speedBytesPerSecond : null;
-    sendTransferEvent('progress', job);
+    const progressSentAt = performance.now();
+    if (progressSentAt - lastTransferProgressSentAt >= TRANSFER_PROGRESS_EVENT_INTERVAL_MS) {
+      lastTransferProgressSentAt = progressSentAt;
+      sendTransferEvent('progress', job);
+    }
     return;
   }
 
@@ -3795,7 +3937,8 @@ function enqueueDownloads(
   operation: TransferOperation = 'copy',
   collisionAction: TransferCollisionAction = 'none'
 ): TransferJob[] {
-  const reservedBytesByVolume = new Map<string, number>();
+  forgetCompletedJobs();
+  const reservedBytesByVolume = pendingDownloadBytesByVolume();
   const reservedPaths = reservedDownloadDestinationPaths();
   const jobs = requests.map((request) => {
     mkdirSync(request.destinationDirectory, { recursive: true });
@@ -3847,11 +3990,12 @@ function enqueueDownloads(
     const canQueue = applyDownloadSpacePreflight(job, reservedBytesByVolume);
     transferJobs.set(job.id, job);
     sendTransferEvent(canQueue ? 'queued' : 'failed', job);
-    return cloneJob(job);
+    return job;
   });
 
   processTransferQueue();
-  return jobs;
+  // Copy after starting the queue: the renderer lets this reply overwrite the started/failed events it already received.
+  return jobs.map(cloneJob);
 }
 
 function requestedDownloadPath(request: TransferRequest): string {
@@ -3915,7 +4059,8 @@ function enqueuePromisedDownloads(
   files: PromisedDownloadFile[],
   promiseId: string
 ): TransferJob[] {
-  const reservedBytesByVolume = new Map<string, number>();
+  forgetCompletedJobs();
+  const reservedBytesByVolume = pendingDownloadBytesByVolume();
   const jobs = files.map(({ request, destinationPath }) => {
     mkdirSync(dirname(destinationPath), { recursive: true });
     const job: TransferJob = {
@@ -3960,6 +4105,7 @@ function enqueueUploads(
   operation: TransferOperation = 'copy',
   collisionAction: TransferCollisionAction = 'none'
 ): TransferJob[] {
+  forgetCompletedJobs();
   const jobs = requests.flatMap((request) => {
     if (!request.sourcePath) {
       return [];
@@ -4038,11 +4184,12 @@ function enqueueUploads(
     };
     transferJobs.set(job.id, job);
     sendTransferEvent('queued', job);
-    return [cloneJob(job)];
+    return [job];
   });
 
   processTransferQueue();
-  return jobs;
+  // Copy after starting the queue: the renderer lets this reply overwrite the started/failed events it already received.
+  return jobs.map(cloneJob);
 }
 
 function validUploadReplacementTarget(request: UploadRequest): PhoneMutationTarget | undefined {
@@ -4097,7 +4244,7 @@ async function confirmFileMove(
   const detail = [
     `Each file will be copied to ${destinationLabel} and checked first.`,
     `Only after a file's destination copy is verified will its source be deleted from ${sourceLabel}.`,
-    'If copying, verification, or deletion fails, the source file is kept. Folders are copied, not moved.'
+    'If copying, verification, or deletion fails, the source file is kept. A moved folder is removed from the source once it is empty; a folder that still holds anything is kept.'
   ].join('\n\n');
   const options = {
     type: 'warning' as const,
@@ -4172,7 +4319,8 @@ function retryTransfer(jobId: string): TransferJob | null {
   job.startedAt = undefined;
   job.finishedAt = undefined;
 
-  if (job.direction === 'download' && !applyDownloadSpacePreflight(job, new Map())) {
+  // The retried job is still failed or canceled here, so it does not reserve space against itself.
+  if (job.direction === 'download' && !applyDownloadSpacePreflight(job, pendingDownloadBytesByVolume())) {
     sendTransferEvent('failed', job);
     return cloneJob(job);
   }
@@ -4200,6 +4348,7 @@ function cancelTransfer(jobId: string): TransferJob | null {
 
   if (job.id === activeJobId) {
     activeWasCanceled = true;
+    // libmtp's USB cancel waits forever while a Samsung reports busy (tested on 04e8:6860), so stop the helper.
     destroyMtpSession('Active transfer canceled.', true);
     return cloneJob(job);
   }
@@ -4672,6 +4821,14 @@ function createWindow(): void {
       nodeIntegration: false
     }
   });
+  const { webContents } = mainWindow;
+  // A Finder file dropped outside the phone pane would replace the app with that file, still holding the preload bridge; only reloads of the current page (error-screen Relaunch, Vite full reload) may navigate.
+  webContents.on('will-navigate', (event) => {
+    if (event.url !== webContents.getURL()) {
+      event.preventDefault();
+    }
+  });
+  webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   appendLog('main window created');
 
   mainWindow.once('ready-to-show', () => {
@@ -4765,7 +4922,7 @@ function buildApplicationMenu(): void {
         },
         { type: 'separator' },
         {
-          label: 'Check Phone Now',
+          label: 'Refresh',
           accelerator: 'CommandOrControl+R',
           click: () => sendAppMenuCommand('refresh')
         },
@@ -4821,12 +4978,6 @@ function buildApplicationMenu(): void {
       label: 'View',
       submenu: [
         {
-          label: 'Folder Up',
-          accelerator: 'CommandOrControl+B',
-          click: () => sendAppMenuCommand('folder-up')
-        },
-        { type: 'separator' },
-        {
           label: 'Focus Phone Pane',
           accelerator: 'CommandOrControl+1',
           click: () => sendAppMenuCommand('focus-phone')
@@ -4867,6 +5018,26 @@ function buildApplicationMenu(): void {
       ]
     },
     {
+      label: 'Go',
+      submenu: [
+        {
+          label: 'Back',
+          accelerator: 'CommandOrControl+[',
+          click: () => sendAppMenuCommand('go-back')
+        },
+        {
+          label: 'Forward',
+          accelerator: 'CommandOrControl+]',
+          click: () => sendAppMenuCommand('go-forward')
+        },
+        {
+          label: 'Enclosing Folder',
+          accelerator: 'CommandOrControl+Up',
+          click: () => sendAppMenuCommand('folder-up')
+        }
+      ]
+    },
+    {
       label: 'Window',
       submenu: [{ role: 'minimize' }, { role: 'zoom' }, ...(isMac ? [{ type: 'separator' as const }, { role: 'front' as const }] : [])]
     },
@@ -4890,6 +5061,7 @@ function buildApplicationMenu(): void {
 }
 
 app.whenReady().then(() => {
+  rotateLogAtStartup();
   removeLegacyPrecopyDirectory();
   cleanupLegacyPrivilegedSession();
   appendLog('app ready');
@@ -4906,6 +5078,7 @@ app.whenReady().then(() => {
     return;
   }
 
+  app.setAboutPanelOptions({ applicationVersion: app.getVersion(), version: __BUILD_COMMIT__ });
   buildApplicationMenu();
 
   ipcMain.handle('mtp:getStatus', getStatus);
@@ -4917,6 +5090,7 @@ app.whenReady().then(() => {
   );
   ipcMain.handle('mtp:cancelConnectionAttempt', () => cancelConnectionAttempt());
   ipcMain.handle('mtp:requestQuitUsbApp', (_event, request: QuitUsbAppRequest) => requestQuitUsbApp(request));
+  ipcMain.handle('mtp:releaseUsbConnection', (_event, connectionId: string) => releaseUsbConnection(connectionId));
   ipcMain.handle('mtp:cancelFolderListing', () => cancelFolderListing());
   ipcMain.handle('local:listDirectory', (_event, directoryPath?: string, showHiddenFiles?: boolean) =>
     listLocalDirectory(directoryPath, showHiddenFiles === true)
@@ -4936,6 +5110,11 @@ app.whenReady().then(() => {
   ipcMain.handle('local:trashItems', (_event, request: TrashLocalItemsRequest) =>
     trashLocalItems(request)
   );
+  ipcMain.handle('local:removeEmptyFolders', (_event, paths: unknown) => {
+    const result = removeEmptyLocalFolders(paths);
+    result.removedPaths.forEach((folderPath) => appendLog(`emptied move source folder removed: ${folderPath}`));
+    return result;
+  });
   ipcMain.handle('local:setModifiedTime', (_event, localPath: string, modified: number) =>
     setLocalModifiedTime(localPath, modified)
   );

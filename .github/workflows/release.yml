@@ -119,6 +119,7 @@ jobs:
           echo "RELEASE_KEYCHAIN=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
       - run: npm run check:public-source
       - run: npm audit --omit=dev --audit-level=high
+      - run: node scripts/check-electron-audit.mjs
       - name: Build, sign, notarize, and verify DMG and update ZIP
         run: npm run release:mac -- ${{ matrix.arch }}
       - uses: actions/upload-artifact@v4
