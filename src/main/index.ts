@@ -110,6 +110,9 @@ import type {
   UploadRequest
 } from '../shared/types';
 
+// Set by electron.vite.config.ts at build time.
+declare const __BUILD_COMMIT__: string;
+
 const { autoUpdater } = electronUpdater;
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -1865,7 +1868,7 @@ function buildDiagnosticsReport(status: DeviceStatus, generatedAt: string): stri
     `Generated: ${generatedAt}`,
     '',
     'App',
-    `Version: ${app.getVersion()}`,
+    `Version: ${app.getVersion()} (${__BUILD_COMMIT__})`,
     `Packaged: ${app.isPackaged && !IS_DEVELOPMENT_RUNTIME ? 'yes' : 'no'}`,
     `Platform: ${process.platform} ${process.arch}`,
     `Electron: ${process.versions.electron ?? 'unknown'}`,
@@ -5033,6 +5036,7 @@ app.whenReady().then(() => {
     return;
   }
 
+  app.setAboutPanelOptions({ applicationVersion: app.getVersion(), version: __BUILD_COMMIT__ });
   buildApplicationMenu();
 
   ipcMain.handle('mtp:getStatus', getStatus);
