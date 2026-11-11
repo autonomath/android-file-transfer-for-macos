@@ -3054,6 +3054,26 @@ function availableBytesForDirectory(directory: string): { bytes: number; volumeK
 // macOS and other apps need room to keep working; a transfer must not fill a volume to the last gigabyte.
 const DOWNLOAD_FREE_SPACE_MARGIN_BYTES = 2 * 1024 * 1024 * 1024;
 
+// Earlier downloads still need room the free-space reading does not show yet: all of a queued file,
+// and the untransferred rest of an active one (its temporary file already holds the transferred part).
+function pendingDownloadBytesByVolume(): Map<string, number> {
+  const reservedBytesByVolume = new Map<string, number>();
+  for (const job of transferJobs.values()) {
+    if (job.direction !== 'download' || (job.status !== 'queued' && job.status !== 'active')) {
+      continue;
+    }
+    let volumeKey: string;
+    try {
+      volumeKey = String(statSync(job.destinationDirectory).dev);
+    } catch {
+      continue;
+    }
+    const pendingBytes = Math.max(job.status === 'active' ? job.size - job.bytesTransferred : job.size, 0);
+    reservedBytesByVolume.set(volumeKey, (reservedBytesByVolume.get(volumeKey) ?? 0) + pendingBytes);
+  }
+  return reservedBytesByVolume;
+}
+
 function downloadSpaceError(
   job: TransferJob,
   reservedBytesByVolume: Map<string, number>
@@ -3900,7 +3920,7 @@ function enqueueDownloads(
   operation: TransferOperation = 'copy',
   collisionAction: TransferCollisionAction = 'none'
 ): TransferJob[] {
-  const reservedBytesByVolume = new Map<string, number>();
+  const reservedBytesByVolume = pendingDownloadBytesByVolume();
   const reservedPaths = reservedDownloadDestinationPaths();
   const jobs = requests.map((request) => {
     mkdirSync(request.destinationDirectory, { recursive: true });
@@ -4021,7 +4041,7 @@ function enqueuePromisedDownloads(
   files: PromisedDownloadFile[],
   promiseId: string
 ): TransferJob[] {
-  const reservedBytesByVolume = new Map<string, number>();
+  const reservedBytesByVolume = pendingDownloadBytesByVolume();
   const jobs = files.map(({ request, destinationPath }) => {
     mkdirSync(dirname(destinationPath), { recursive: true });
     const job: TransferJob = {
@@ -4279,7 +4299,8 @@ function retryTransfer(jobId: string): TransferJob | null {
   job.startedAt = undefined;
   job.finishedAt = undefined;
 
-  if (job.direction === 'download' && !applyDownloadSpacePreflight(job, new Map())) {
+  // The retried job is still failed or canceled here, so it does not reserve space against itself.
+  if (job.direction === 'download' && !applyDownloadSpacePreflight(job, pendingDownloadBytesByVolume())) {
     sendTransferEvent('failed', job);
     return cloneJob(job);
   }

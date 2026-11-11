@@ -39,18 +39,23 @@ assert.match(main, /Free space on the Mac, then drag the item again\./, 'Promise
 assert.match(main, /function applyDownloadSpacePreflight/, 'Main process must mark impossible Mac-side transfers before starting transfer workers.');
 assert.match(
   main,
-  /function enqueueDownloads[\s\S]*const reservedBytesByVolume = new Map<string, number>\(\)[\s\S]*applyDownloadSpacePreflight\(job, reservedBytesByVolume\)[\s\S]*sendTransferEvent\(canQueue \? 'queued' : 'failed', job\)/,
+  /function pendingDownloadBytesByVolume\(\): Map<string, number> \{[\s\S]*?job\.direction !== 'download' \|\| \(job\.status !== 'queued' && job\.status !== 'active'\)[\s\S]*?String\(statSync\(job\.destinationDirectory\)\.dev\)[\s\S]*?catch \{\s*continue;[\s\S]*?job\.status === 'active' \? job\.size - job\.bytesTransferred : job\.size/,
+  'Free-space preflight must reserve the untransferred bytes of downloads already queued or active on the same volume.'
+);
+assert.match(
+  main,
+  /function enqueueDownloads[\s\S]*const reservedBytesByVolume = pendingDownloadBytesByVolume\(\)[\s\S]*applyDownloadSpacePreflight\(job, reservedBytesByVolume\)[\s\S]*sendTransferEvent\(canQueue \? 'queued' : 'failed', job\)/,
   'Queued downloads must run free-space preflight and emit failed jobs immediately when blocked.'
 );
 assert.match(
   main,
-  /function enqueuePromisedDownloads[\s\S]*const reservedBytesByVolume = new Map<string, number>\(\)[\s\S]*applyDownloadSpacePreflight\(job, reservedBytesByVolume\)/,
+  /function enqueuePromisedDownloads[\s\S]*const reservedBytesByVolume = pendingDownloadBytesByVolume\(\)[\s\S]*applyDownloadSpacePreflight\(job, reservedBytesByVolume\)/,
   'Destination-aware promised downloads must run free-space preflight.'
 );
 assert.match(
   main,
-  /job\.direction === 'download' && !applyDownloadSpacePreflight\(job, new Map\(\)\)/,
-  'Retrying an ordinary phone download must re-check free space.'
+  /job\.direction === 'download' && !applyDownloadSpacePreflight\(job, pendingDownloadBytesByVolume\(\)\)\) \{[\s\S]*?\n  job\.status = 'queued';/,
+  'Retrying an ordinary phone download must re-check free space against earlier downloads, before the job counts as queued itself.'
 );
 
 assert.match(app, /failedBeforeTracking/, 'Folder-copy tracking must account for jobs that fail before tracking starts.');
