@@ -4304,7 +4304,26 @@ function cancelTransfer(jobId: string): TransferJob | null {
 
   if (job.id === activeJobId) {
     activeWasCanceled = true;
-    destroyMtpSession('Active transfer canceled.', true);
+    const transferCommand = activeSessionCommand;
+    if (sessionProcess && (transferCommand?.name === 'download' || transferCommand?.name === 'upload')) {
+      // The helper's progress callback makes libmtp send the USB cancel request; killing the helper
+      // mid-transfer can leave a Samsung phone unanswering until its USB mode is toggled.
+      appendLog('user canceled the active transfer; the helper stops at its next progress update');
+      sessionProcess.kill('SIGUSR1');
+      const answer = transferCommand.resolve;
+      transferCommand.resolve = (payload) => {
+        // libmtp leaves the phone's reply to a canceled upload unread, so close before another command runs.
+        void destroyMtpSession('Active transfer canceled.');
+        answer(payload);
+      };
+      setTimeout(() => {
+        if (activeSessionCommand === transferCommand) {
+          destroyMtpSession('Active transfer canceled; the MTP helper did not stop within 5 seconds.', true);
+        }
+      }, 5_000);
+    } else {
+      destroyMtpSession('Active transfer canceled.', true);
+    }
     return cloneJob(job);
   }
 

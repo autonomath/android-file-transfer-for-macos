@@ -89,6 +89,18 @@ assert.match(
 assert.match(main, /phone file access validation failed[\s\S]*keeping the persistent session open for an explicit storage retry/);
 assert.match(main, /session root listing failed[\s\S]*keeping the persistent session open for an explicit storage retry/);
 assert.doesNotMatch(main, /closing the unusable session/);
+assert.match(
+  native,
+  /static int session_progress_callback\([^)]*\) \{\s*\(void\)data;\s*if \(session_stop_requested\) \{\s*return 1;/,
+  'A canceled transfer must stop through the progress callback, so libmtp sends the USB cancel request.'
+);
+for (const name of ['session_download', 'session_upload']) {
+  assert.match(
+    native,
+    new RegExp(`static void ${name}\\([^)]*\\) \\{\\s*(//[^\\n]*\\s*)*session_stop_requested = 0;`),
+    `${name} must clear a stop meant for an earlier command before it starts.`
+  );
+}
 
 assert.match(app, /blockedAutoDeviceKeys = useRef<Set<string>>\(new Set\(\)\)/);
 assert.match(app, /lastVisibleConnectionKey\.current !== nextConnectionKey/);

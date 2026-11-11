@@ -115,7 +115,7 @@ For an authorized Pixel 9 test device, identify it locally with `adb devices` an
 - Click Clear Finished after completed/canceled/failed jobs exist; finished items are removed while active or queued jobs remain.
 - The transfer status strip under the phone file list stays one summary line plus a progress bar; clicking the summary expands the job list upward and clicking again collapses it.
 - Move a phone folder with a subfolder to the Mac, and a Mac folder to the phone: every file arrives, and each source folder disappears only after it is empty. Make one file fail (for example, no free space) and confirm its folder and the folders above it stay.
-- Start a large copy and cancel it; the queue shows canceled and the log shows the single MTP worker was stopped.
+- Start a large copy and cancel it; within a few seconds the queue shows canceled, no partial file is left in the Mac folder, and the log shows `user canceled the active transfer` then `sent graceful quit to MTP session` with no `SIGTERM`. Start another copy right away and confirm it opens a new session and finishes without toggling the phone's USB mode. Repeat with a large upload and confirm the phone keeps no partial file after a folder refresh.
 - Quit the app after a normal phone-file session is open; confirm the log says `sent graceful quit to MTP session` instead of immediately killing the helper with `SIGTERM`.
 - Retry the canceled or failed copy; it queues again.
 - After a phone-to-Mac copy completes, confirm the copied file appears in the open Mac pane without navigating away and back.
