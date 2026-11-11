@@ -50,6 +50,17 @@ assert.match(
   /app\.whenReady\(\)\.then\([\s\S]*app\.setAboutPanelOptions\(\{ applicationVersion: app\.getVersion\(\), version: __BUILD_COMMIT__ \}\)/,
   'The About panel must show the build commit.'
 );
+assert.match(main, /const MAX_LOG_BYTES = 5 \* 1024 \* 1024;/, 'The log must rotate once it passes 5 MB.');
+assert.match(
+  main,
+  /function rotateLogAtStartup\(\): void \{[\s\S]*?statSync\(logPath\)\.size > MAX_LOG_BYTES[\s\S]*?renameSync\(logPath, `\$\{logPath\}\.1`\)/,
+  'An oversized log must be renamed to mtp.log.1, replacing the older one.'
+);
+assert.match(
+  main,
+  /app\.whenReady\(\)\.then\(\(\) => \{\s*rotateLogAtStartup\(\);/,
+  'The log must rotate at startup before the launch writes its first line.'
+);
 
 assert.match(app, /const \[diagnosticsBusy, setDiagnosticsBusy\] = useState\(false\)/, 'Renderer must show a busy state while copying diagnostics.');
 assert.match(app, /async function copyDiagnosticReport\(\): Promise<void>/, 'Renderer must own a copy diagnostics action.');

@@ -285,6 +285,20 @@ function appendLog(message: string): void {
   appendFileSync(getLogPath(), `[${timestamp}] ${message}\n`, 'utf8');
 }
 
+const MAX_LOG_BYTES = 5 * 1024 * 1024;
+
+// Keep the previous launch's log as mtp.log.1 so the log cannot grow without limit across launches.
+function rotateLogAtStartup(): void {
+  const logPath = getLogPath();
+  try {
+    if (existsSync(logPath) && statSync(logPath).size > MAX_LOG_BYTES) {
+      renameSync(logPath, `${logPath}.1`);
+    }
+  } catch (error) {
+    appendLog(`warning: unable to rotate the log: ${String(error)}`);
+  }
+}
+
 // A phone that keeps answering the storage question the same way produces the
 // same log line on every retry. Write it once, then summarize repeats, so a
 // long wait does not grow the log by megabytes and the next real change is
@@ -5041,6 +5055,7 @@ function buildApplicationMenu(): void {
 }
 
 app.whenReady().then(() => {
+  rotateLogAtStartup();
   removeLegacyPrecopyDirectory();
   cleanupLegacyPrivilegedSession();
   appendLog('app ready');
