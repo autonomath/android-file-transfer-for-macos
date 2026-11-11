@@ -3514,6 +3514,16 @@ function nextQueuedJob(): TransferJob | undefined {
   return Array.from(transferJobs.values()).find((job) => job.status === 'queued');
 }
 
+// The window keeps finished jobs in its own list; dropping completed ones here keeps every queue scan
+// short in long sessions. Failed and canceled jobs stay so Retry can find them.
+function forgetCompletedJobs(): void {
+  for (const [jobId, job] of transferJobs) {
+    if (job.status === 'completed') {
+      transferJobs.delete(jobId);
+    }
+  }
+}
+
 function sameLocalSourceIdentity(
   current: LocalSourceIdentity,
   queued: LocalSourceIdentity
@@ -3934,6 +3944,7 @@ function enqueueDownloads(
   operation: TransferOperation = 'copy',
   collisionAction: TransferCollisionAction = 'none'
 ): TransferJob[] {
+  forgetCompletedJobs();
   const reservedBytesByVolume = pendingDownloadBytesByVolume();
   const reservedPaths = reservedDownloadDestinationPaths();
   const jobs = requests.map((request) => {
@@ -4055,6 +4066,7 @@ function enqueuePromisedDownloads(
   files: PromisedDownloadFile[],
   promiseId: string
 ): TransferJob[] {
+  forgetCompletedJobs();
   const reservedBytesByVolume = pendingDownloadBytesByVolume();
   const jobs = files.map(({ request, destinationPath }) => {
     mkdirSync(dirname(destinationPath), { recursive: true });
@@ -4100,6 +4112,7 @@ function enqueueUploads(
   operation: TransferOperation = 'copy',
   collisionAction: TransferCollisionAction = 'none'
 ): TransferJob[] {
+  forgetCompletedJobs();
   const jobs = requests.flatMap((request) => {
     if (!request.sourcePath) {
       return [];

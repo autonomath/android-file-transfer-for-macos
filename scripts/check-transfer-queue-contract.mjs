@@ -86,6 +86,19 @@ for (const enqueue of ['enqueueDownloads', 'enqueueUploads']) {
     `${enqueue} must return job copies taken after starting the queue, or its reply overwrites a failed or started event and the row stays queued.`
   );
 }
+for (const enqueue of ['enqueueDownloads', 'enqueuePromisedDownloads', 'enqueueUploads']) {
+  const start = main.indexOf(`function ${enqueue}(`);
+  assert.match(
+    main.slice(start, main.indexOf('\n}\n', start)),
+    /\): TransferJob\[\] \{\s*forgetCompletedJobs\(\);/,
+    `${enqueue} must drop completed jobs before queueing a batch, or the job map grows for the whole session.`
+  );
+}
+assert.match(
+  main,
+  /function forgetCompletedJobs\(\): void \{\s*for \(const \[jobId, job\] of transferJobs\) \{\s*if \(job\.status === 'completed'\) \{\s*transferJobs\.delete\(jobId\);/,
+  'Only completed jobs may be dropped; failed and canceled jobs must stay for Retry.'
+);
 assert.match(
   main.slice(main.indexOf('function handleTransferPayload('), main.indexOf('function transferCommandForJob(')),
   /job\.etaSeconds = [^\n]*\n\s*const progressSentAt = performance\.now\(\);\s*if \(progressSentAt - lastTransferProgressSentAt >= TRANSFER_PROGRESS_EVENT_INTERVAL_MS\) \{\s*lastTransferProgressSentAt = progressSentAt;\s*sendTransferEvent\('progress', job\);/,
