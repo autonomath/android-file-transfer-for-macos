@@ -166,4 +166,10 @@ assert.match(
   'Main process must register the Desktop destination helper.'
 );
 
+assert.match(
+  main,
+  /webContents\.on\('will-navigate', \(event\) => \{\s*if \(event\.url !== webContents\.getURL\(\)\) \{\s*event\.preventDefault\(\);[\s\S]*webContents\.setWindowOpenHandler\(\(\) => \(\{ action: 'deny' \}\)\)/,
+  'A file dropped outside the phone pane must not navigate the window away from the app, and the page must not open new windows.'
+);
+
 console.log('Transfer drag contract check passed.');

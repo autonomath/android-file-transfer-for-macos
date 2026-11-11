@@ -4766,6 +4766,14 @@ function createWindow(): void {
       nodeIntegration: false
     }
   });
+  const { webContents } = mainWindow;
+  // A Finder file dropped outside the phone pane would replace the app with that file, still holding the preload bridge; only reloads of the current page (error-screen Relaunch, Vite full reload) may navigate.
+  webContents.on('will-navigate', (event) => {
+    if (event.url !== webContents.getURL()) {
+      event.preventDefault();
+    }
+  });
+  webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   appendLog('main window created');
 
   mainWindow.once('ready-to-show', () => {
