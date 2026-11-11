@@ -78,6 +78,14 @@ assert.match(
   'Normal transfer progress must refresh the session command timeout.'
 );
 assert.match(main, /TRANSFER_COMMAND_IDLE_TIMEOUT_MS/, 'Transfer jobs must use the transfer idle timeout constant.');
+for (const enqueue of ['enqueueDownloads', 'enqueueUploads']) {
+  const start = main.indexOf(`function ${enqueue}(`);
+  assert.match(
+    main.slice(start, main.indexOf('\n}\n', start)),
+    /processTransferQueue\(\);[^}]*return jobs\.map\(cloneJob\);$/,
+    `${enqueue} must return job copies taken after starting the queue, or its reply overwrites a failed or started event and the row stays queued.`
+  );
+}
 
 assert.match(styles, /\.queue-summary/, 'Queue summary must have dedicated styling.');
 assert.match(styles, /\.queue-total-progress/, 'Aggregate queue progress must have stable progress styling.');

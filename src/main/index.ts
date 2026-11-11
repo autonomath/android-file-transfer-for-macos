@@ -3941,11 +3941,12 @@ function enqueueDownloads(
     const canQueue = applyDownloadSpacePreflight(job, reservedBytesByVolume);
     transferJobs.set(job.id, job);
     sendTransferEvent(canQueue ? 'queued' : 'failed', job);
-    return cloneJob(job);
+    return job;
   });
 
   processTransferQueue();
-  return jobs;
+  // Copy after starting the queue: the renderer lets this reply overwrite the started/failed events it already received.
+  return jobs.map(cloneJob);
 }
 
 function requestedDownloadPath(request: TransferRequest): string {
@@ -4132,11 +4133,12 @@ function enqueueUploads(
     };
     transferJobs.set(job.id, job);
     sendTransferEvent('queued', job);
-    return [cloneJob(job)];
+    return [job];
   });
 
   processTransferQueue();
-  return jobs;
+  // Copy after starting the queue: the renderer lets this reply overwrite the started/failed events it already received.
+  return jobs.map(cloneJob);
 }
 
 function validUploadReplacementTarget(request: UploadRequest): PhoneMutationTarget | undefined {
