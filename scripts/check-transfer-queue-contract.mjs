@@ -86,6 +86,12 @@ for (const enqueue of ['enqueueDownloads', 'enqueueUploads']) {
     `${enqueue} must return job copies taken after starting the queue, or its reply overwrites a failed or started event and the row stays queued.`
   );
 }
+assert.match(
+  main.slice(main.indexOf('function handleTransferPayload('), main.indexOf('function transferCommandForJob(')),
+  /job\.etaSeconds = [^\n]*\n\s*const progressSentAt = performance\.now\(\);\s*if \(progressSentAt - lastTransferProgressSentAt >= TRANSFER_PROGRESS_EVENT_INTERVAL_MS\) \{\s*lastTransferProgressSentAt = progressSentAt;\s*sendTransferEvent\('progress', job\);/,
+  'Transfer progress must update the job on every helper event but reach the renderer at most every interval, because each event re-renders the open phone folder.'
+);
+assert.match(main, /const TRANSFER_PROGRESS_EVENT_INTERVAL_MS = 250;/, 'Transfer progress must reach the renderer at most four times a second.');
 
 assert.match(styles, /\.queue-summary/, 'Queue summary must have dedicated styling.');
 assert.match(styles, /\.queue-total-progress/, 'Aggregate queue progress must have stable progress styling.');

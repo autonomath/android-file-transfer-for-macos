@@ -3525,6 +3525,10 @@ async function requireCurrentPhoneConnection(job: TransferJob): Promise<void> {
   }
 }
 
+// The helper reports every 1 MiB and each event re-renders the whole renderer; transfers run one at a time, so one timestamp throttles per job.
+const TRANSFER_PROGRESS_EVENT_INTERVAL_MS = 250;
+let lastTransferProgressSentAt = 0;
+
 function handleTransferPayload(job: TransferJob, payload: SessionPayload): void {
   if (payload.event === 'started') {
     sendTransferEvent('started', job);
@@ -3544,7 +3548,11 @@ function handleTransferPayload(job: TransferJob, payload: SessionPayload): void 
     job.speedBytesPerSecond = job.bytesTransferred / elapsedSeconds;
     const remaining = Math.max(job.totalBytes - job.bytesTransferred, 0);
     job.etaSeconds = job.speedBytesPerSecond > 0 ? remaining / job.speedBytesPerSecond : null;
-    sendTransferEvent('progress', job);
+    const progressSentAt = performance.now();
+    if (progressSentAt - lastTransferProgressSentAt >= TRANSFER_PROGRESS_EVENT_INTERVAL_MS) {
+      lastTransferProgressSentAt = progressSentAt;
+      sendTransferEvent('progress', job);
+    }
     return;
   }
 
