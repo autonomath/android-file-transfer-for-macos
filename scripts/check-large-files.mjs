@@ -255,9 +255,9 @@ assert.match(
 );
 assert.match(
   native,
-  /for \(int index = 0; index < count; index \+= 1\) \{\s*if \(session_stop_requested\) \{/,
+  /for \(int index = 0; index < count; index \+= 1\) \{\s*if \(session_list_stop_requested\) \{/,
   'The helper must check for a stop before each object it lists.'
 );
-assert.match(native, /stop_request\.sa_flags = SA_RESTART;/, 'The stop signal must not interrupt reads from the app.');
+assert.match(native, /stop_listing\.sa_flags = SA_RESTART;/, 'The stop signal must not interrupt reads from the app.');
 
 console.log('Large-file scan checks passed.');

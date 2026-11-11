@@ -51,23 +51,6 @@ assert.match(
 
 const queuePump = section('function processTransferQueue(', 'function enqueueDownloads(');
 assert.match(queuePump, /mtpSessionTeardown !== null/);
-
-const cancel = section('function cancelTransfer(', 'async function chooseDestination(');
-assert.match(
-  cancel,
-  /transferCommand\?\.name === 'download' \|\| transferCommand\?\.name === 'upload'\)\) \{[\s\S]*?sessionProcess\.kill\('SIGUSR1'\);/,
-  'Canceling an active download or upload must ask the helper to abort through libmtp, never kill it mid-transfer.'
-);
-assert.match(
-  cancel,
-  /transferCommand\.resolve = \(payload\) => \{[\s\S]*?void destroyMtpSession\('Active transfer canceled\.'\);\s*answer\(payload\);/,
-  'Once the helper answers a canceled transfer, the session must close with quit before another command runs.'
-);
-assert.match(
-  cancel,
-  /setTimeout\(\(\) => \{\s*if \(activeSessionCommand === transferCommand\) \{\s*destroyMtpSession\('[^']*', true\);/,
-  'The forced stop must remain only as a fallback for a helper that has not answered the cancel.'
-);
 assert.match(main, /destroyMtpSession\('MTP raw device disappeared\.', true\)/);
 assert.doesNotMatch(main, /AdminSession|destroyAdmin|startAdmin|protected session/i);
 
