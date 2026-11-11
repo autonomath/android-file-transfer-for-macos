@@ -2563,12 +2563,17 @@ static void session_delete_item(const char *request_id,
   if (metadata == NULL) {
     return;
   }
+  // The inferred Samsung storage id is not a storage the phone has; a phone may answer 0 children for it.
+  uint32_t children_storage_id = metadata->storage_id != 0 ? metadata->storage_id : storage_id;
   LIBMTP_destroy_file_t(metadata);
 
   // Deleting an MTP folder can delete everything in it, so a moved-from folder goes only when the phone reports it empty.
   if (require_empty) {
     uint32_t *children = NULL;
-    int count = LIBMTP_Get_Children(device, storage_id, object_id, &children);
+    int count = -1;
+    if (children_storage_id != INFERRED_STORAGE_ID) {
+      count = LIBMTP_Get_Children(device, children_storage_id, object_id, &children);
+    }
     free(children);
     if (count != 0) {
       LIBMTP_Clear_Errorstack(device);

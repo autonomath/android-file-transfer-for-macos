@@ -47,8 +47,13 @@ assert.match(
 );
 assert.match(
   native,
-  /if \(require_empty\)[\s\S]*LIBMTP_Get_Children\(device, storage_id, object_id, &children\)[\s\S]*if \(count != 0\)[\s\S]*LIBMTP_Delete_Object/,
+  /if \(require_empty\)[\s\S]*LIBMTP_Get_Children\(device, children_storage_id, object_id, &children\)[\s\S]*if \(count != 0\)[\s\S]*LIBMTP_Delete_Object/,
   'Deleting an MTP folder can delete its contents, so the phone must report it empty right before deletion.'
+);
+assert.match(
+  native,
+  /children_storage_id = metadata->storage_id != 0 \? metadata->storage_id : storage_id;[\s\S]*int count = -1;\s*if \(children_storage_id != INFERRED_STORAGE_ID\) \{\s*count = LIBMTP_Get_Children\(device, children_storage_id,/,
+  'An emptied folder must be counted on its own storage; with only the inferred Samsung storage it must be kept, since a phone can answer 0 children for a storage it does not have.'
 );
 assert.match(app, /startMoveDownloads\(plan\.requests\)/);
 assert.match(app, /startMoveUploads\(requests\)/);
