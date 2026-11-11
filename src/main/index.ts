@@ -2978,7 +2978,7 @@ function finalizeDownloadedFile(job: TransferJob): void {
     throw new Error('The transfer completed without a partial Mac file to publish.');
   }
 
-  if (job.direction === 'download' && job.promiseId) {
+  if (job.promiseId) {
     publishTemporaryFile({
       temporaryPath,
       destinationPath: job.destinationPath,
@@ -2986,7 +2986,7 @@ function finalizeDownloadedFile(job: TransferJob): void {
     });
     job.originalDestinationPath = job.destinationPath;
     job.renamedDestination = false;
-  } else if (job.direction === 'download' && job.collisionAction === 'replace' && job.destinationIdentity) {
+  } else if (job.collisionAction === 'replace' && job.destinationIdentity) {
     replaceTemporaryFile({
       temporaryPath,
       destinationPath: job.destinationPath,
@@ -2995,7 +2995,7 @@ function finalizeDownloadedFile(job: TransferJob): void {
     });
     job.originalDestinationPath = job.destinationPath;
     job.renamedDestination = false;
-  } else if (job.direction === 'download') {
+  } else {
     const reservedPaths = reservedDownloadDestinationPaths(job.id);
     if (reservedPaths.has(job.destinationPath)) {
       job.destinationPath = uniqueDestinationPath(job.destinationDirectory, job.name, reservedPaths);
@@ -3009,13 +3009,6 @@ function finalizeDownloadedFile(job: TransferJob): void {
     job.destinationPath = published.destinationPath;
     job.originalDestinationPath ??= join(job.destinationDirectory, sanitizeFileName(job.name));
     job.renamedDestination = job.destinationPath !== job.originalDestinationPath;
-  } else {
-    publishTemporaryFile({
-      temporaryPath,
-      destinationPath: job.destinationPath,
-      expectedSize: job.size,
-      allowExistingEquivalent: true
-    });
   }
 
   job.temporaryPath = undefined;
